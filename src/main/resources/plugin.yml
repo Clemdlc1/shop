@@ -1,0 +1,59 @@
+name: PlayerShops
+version: 1.0.0
+main: fr.shop.PlayerShops
+author: YourName
+description: Plugin de shops joueur avec système de location et commerce
+api-version: 1.21
+depend: [ PrisonTycoon ]
+
+commands:
+  shop:
+    description: Commande principale des shops joueur
+    usage: /shop <args>
+    aliases: [ shops, playershop, pshop ]
+
+permissions:
+  playershops.use:
+    description: Permission de base pour utiliser les shops
+    default: true
+
+  playershops.rent:
+    description: Permission pour louer un shop
+    default: true
+
+  playershops.teleport:
+    description: Permission pour se téléporter aux shops
+    default: true
+
+  playershops.member:
+    description: Permission pour ajouter des membres
+    default: true
+
+  playershops.customize:
+    description: Permission pour personnaliser son shop
+    default: true
+
+  playershops.commerce:
+    description: Permission pour créer des chest shops
+    default: true
+
+  playershops.advertisement:
+    description: Permission pour créer des annonces
+    default: true
+
+  playershops.boost:
+    description: Permission pour booster les annonces
+    default: true
+
+  playershops.admin:
+    description: Permission d'administration
+    default: op
+    children:
+      - playershops.use
+      - playershops.rent
+      - playershops.teleport
+      - playershops.member
+      - playershops.customize
+      - playershops.commerce
+      - playershops.advertisement
+      - playershops.boost

@@ -1,0 +1,213 @@
+# Configuration PlayerShops
+# Plugin de shops joueur avec système de location et commerce
+
+# Paramètres généraux
+settings:
+  # Configuration de la location
+  rent:
+    price: 1000                    # Prix de base en beacons
+    duration: 259200000           # Durée en millisecondes (3 jours)
+    grace_duration: 86400000      # Période de grâce en millisecondes (1 jour)
+
+  # Configuration de la personnalisation
+  customization:
+    custom-message:
+      price: 100                  # Prix pour un message personnalisé
+      cooldown: 5000              # Cooldown entre messages en millisecondes (5 secondes)
+    floating-text:
+      price: 50                   # Prix par texte flottant
+      max-per-shop: 3             # Maximum de textes flottants par shop
+    npc:
+      price: 500                  # Prix pour un PNJ
+
+  # Configuration des annonces
+  advertisement:
+    boost:
+      price: 200                  # Prix pour booster une annonce
+      duration: 3600000           # Durée du boost en millisecondes (1 heure)
+
+# Configuration des shops
+# Format: shopId -> propriétés
+shops:
+  shop1:
+    world: world
+    location:
+      x: 100
+      y: 64
+      z: 100
+      yaw: 0
+      pitch: 0
+    corner1:
+      x: 95
+      y: 64
+      z: 95
+    corner2:
+      x: 105
+      y: 74
+      z: 105
+
+  shop2:
+    world: world
+    location:
+      x: 120
+      y: 64
+      z: 100
+      yaw: 0
+      pitch: 0
+    corner1:
+      x: 115
+      y: 64
+      z: 95
+    corner2:
+      x: 125
+      y: 74
+      z: 105
+
+  shop3:
+    world: world
+    location:
+      x: 140
+      y: 64
+      z: 100
+      yaw: 0
+      pitch: 0
+    corner1:
+      x: 135
+      y: 64
+      z: 95
+    corner2:
+      x: 145
+      y: 74
+      z: 105
+
+  shop4:
+    world: world
+    location:
+      x: 160
+      y: 64
+      z: 100
+      yaw: 0
+      pitch: 0
+    corner1:
+      x: 155
+      y: 64
+      z: 95
+    corner2:
+      x: 165
+      y: 74
+      z: 105
+
+  shop5:
+    world: world
+    location:
+      x: 180
+      y: 64
+      z: 100
+      yaw: 0
+      pitch: 0
+    corner1:
+      x: 175
+      y: 64
+      z: 95
+    corner2:
+      x: 185
+      y: 74
+      z: 105
+
+  # Shops de plus grande taille
+  bigshop1:
+    world: world
+    location:
+      x: 100
+      y: 64
+      z: 130
+      yaw: 0
+      pitch: 0
+    corner1:
+      x: 90
+      y: 64
+      z: 120
+    corner2:
+      x: 110
+      y: 80
+      z: 140
+
+  bigshop2:
+    world: world
+    location:
+      x: 130
+      y: 64
+      z: 130
+      yaw: 0
+      pitch: 0
+    corner1:
+      x: 120
+      y: 64
+      z: 120
+    corner2:
+      x: 140
+      y: 80
+      z: 140
+
+# Messages du plugin
+messages:
+  prefix: "§6§lSHOP §8»"
+
+  # Messages d'erreur
+  errors:
+    no-permission: "§cVous n'avez pas la permission!"
+    player-only: "§cCette commande ne peut être utilisée que par un joueur!"
+    shop-not-found: "§cShop introuvable!"
+    already-rented: "§cCe shop est déjà loué!"
+    no-shop: "§cVous ne possédez aucun shop!"
+    not-enough-beacons: "§cVous n'avez pas assez de beacons!"
+    transaction-failed: "§cErreur lors de la transaction!"
+    player-not-found: "§cJoueur introuvable!"
+    already-member: "§cCe joueur est déjà membre!"
+    not-member: "§cCe joueur n'est pas membre!"
+    invalid-price: "§cPrix invalide!"
+    chest-shop-exists: "§cCe coffre a déjà un chest shop!"
+    no-space-sign: "§cPas de place pour placer un panneau!"
+    inventory-full: "§cVotre inventaire est plein!"
+    insufficient-stock: "§cStock insuffisant!"
+    one-beacon-only: "§cVous ne pouvez avoir qu'un seul beacon!"
+    legendary-pickaxe: "§cVous ne pouvez pas vendre une pioche légendaire!"
+    not-in-shop: "§cVous devez être dans un shop pour le revendiquer!"
+    shop-unavailable: "§cCe shop n'est pas disponible!"
+    max-floating-texts: "§cVous avez atteint la limite de textes flottants! (3 max)"
+    grace-period: "§cCe shop est en période de grâce!"
+
+  # Messages de succès
+  success:
+    shop-claimed: "§aVous avez revendiqué le shop {shop} pour {price} beacons!"
+    shop-extended: "§aVotre shop a été prolongé de 3 jours!"
+    member-added: "§a{player} a été ajouté à votre shop!"
+    member-removed: "§a{player} a été retiré de votre shop!"
+    custom-message-set: "§aMessage d'approche défini!"
+    custom-message-removed: "§aMessage personnalisé supprimé!"
+    floating-text-added: "§aTexte flottant ajouté à votre position!"
+    floating-text-removed: "§aTexte flottant supprimé!"
+    npc-added: "§aPNJ {name} ajouté!"
+    npc-removed: "§aPNJ supprimé!"
+    chest-shop-created: "§aChest shop de {mode} créé avec succès!"
+    chest-shop-removed: "§aChest shop supprimé!"
+    price-updated: "§aPrix modifié: {price} beacons"
+    mode-switched: "§aMode changé en {mode}!"
+    advertisement-created: "§aAnnonce créée!"
+    advertisement-boosted: "§aAnnonce boostée pour 1 heure!"
+    purchase-success: "§aAchat effectué! ({price} beacons)"
+    sell-success: "§aVente effectuée! (+{price} beacons)"
+
+  # Messages d'information
+  info:
+    merchant-discount: "§eRéduction commerçant niveau 5+ appliquée!"
+    rent-expired: "§cVotre shop {shop} a expiré!"
+    grace-period-started: "§eVotre shop {shop} est entré en période de grâce!"
+    grace-period-warning: "§eVous avez 24h pour prolonger avant la fermeture définitive."
+    shop-closed: "§cVotre shop {shop} a été fermé définitivement!"
+    sale-notification: "§a{player} a acheté dans votre chest shop! (+{price} beacons)"
+    purchase-notification: "§a{player} a vendu dans votre chest shop! (-{price} beacons)"
+    approach-message: "§6§lSHOP §8» {message}"
+    floating-text-list: "§6Vos textes flottants:"
+    chest-shop-info: "§6Informations sur votre chest shop ({mode}):"
+    modify-hint: "§7Clic gauche pour modifier le prix/mode"
