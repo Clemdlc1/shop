@@ -7,9 +7,7 @@ import com.sk89q.worldedit.world.block.BlockTypes;
 import fr.shop.PlayerShops;
 import fr.shop.data.Zone;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.World;
-import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -53,17 +51,15 @@ public class ZoneScanner {
             @Override
             public void run() {
                 try {
-                    // Phase 1: Chercher tous les beacons (partie la plus longue)
-                    sendMessage(initiator, "§7§lSHOP §8» §7Phase 1: Recherche des beacons... (peut prendre du temps)");
-                    Set<Location> beaconLocations = findAllBeacons(world);
+                    // Phase 1: Chercher tous les beacons ET bamboo_mosaic
+                    sendMessage(initiator, "§7§lSHOP §8» §7Phase 1: Recherche des beacons et téléportations...");
+                    ScanResults scanResults = findAllBeacons(world); // Utiliser la nouvelle méthode
 
-                    // --- Traitement des résultats ---
+                    sendMessage(initiator, "§7§lSHOP §8» §7Trouvé §e" + scanResults.beacons.size() + " §7beacons et §e" + scanResults.bambooMosaics.size() + " §7téléportations.");
 
-                    sendMessage(initiator, "§7§lSHOP §8» §7Trouvé §e" + beaconLocations.size() + " §7beacons.");
-
-                    // Phase 2: Créer les zones
-                    sendMessage(initiator, "§7§lSHOP §8» §7Phase 2: Création des zones...");
-                    List<Zone> zones = createZonesFromBeacons(beaconLocations, world.getName());
+                    // Phase 2: Créer les zones avec téléportations
+                    sendMessage(initiator, "§7§lSHOP §8» §7Phase 2: Création des zones avec téléportations...");
+                    List<Zone> zones = createZonesFromBeacons(scanResults, world.getName());
 
                     // Phase 3: Sauvegarder les zones
                     sendMessage(initiator, "§7§lSHOP §8» §7Phase 3: Sauvegarde des zones...");
@@ -71,23 +67,28 @@ public class ZoneScanner {
                     zones.forEach(zoneManager::addZone);
                     zoneManager.saveZones();
 
-                    // Résultats
+                    long zonesWithTeleport = zones.stream().mapToLong(z -> z.hasTeleportLocation() ? 1 : 0).sum();
+
                     long duration = System.currentTimeMillis() - startTime;
-                    ScanResult result = new ScanResult(world.getName(), beaconLocations.size(), zones.size(), duration);
+                    ScanResult result = new ScanResult(world.getName(), scanResults.beacons.size(), zones.size(), duration);
 
                     // Envoyer le message final depuis le thread principal
                     new BukkitRunnable() {
                         @Override
                         public void run() {
                             sendMessage(initiator, "§a§lSHOP §8» §aScan terminé!");
-                            sendMessage(initiator, "§7§lSHOP §8» §7Beacons trouvés: §e" + result.getBeaconsFound());
-                            sendMessage(initiator, "§7§lSHOP §8» §7Zones créées: §e" + result.getZonesCreated());
+                            sendMessage(initiator, "§7§lSHOP §8» §7Beacons trouvés: §e" + scanResults.beacons.size());
+                            sendMessage(initiator, "§7§lSHOP §8» §7Téléportations trouvées: §e" + scanResults.bambooMosaics.size());
+                            sendMessage(initiator, "§7§lSHOP §8» §7Zones créées: §e" + zones.size());
+                            sendMessage(initiator, "§7§lSHOP §8» §7Zones avec téléportation: §e" + zonesWithTeleport);
                             sendMessage(initiator, "§7§lSHOP §8» §7Durée: §e" + (duration / 1000.0) + "s");
                         }
                     }.runTask(plugin);
 
                     plugin.getLogger().info("Scan terminé - Beacons: " + result.getBeaconsFound() +
+                            ", Téléportations: " + scanResults.bambooMosaics.size() +
                             ", Zones: " + result.getZonesCreated() +
+                            ", Zones avec téléportation: " + zonesWithTeleport +
                             ", Durée: " + (duration / 1000.0) + "s");
 
                     isScanning = false;
@@ -107,15 +108,15 @@ public class ZoneScanner {
     // ===============================
     // RECHERCHE DES BEACONS (AVEC DEBUG)
     // ===============================
-    private Set<Location> findAllBeacons(org.bukkit.World bukkitWorld) {
-        plugin.getLogger().info("[DEBUG] Début de la recherche de beacons avec FAWE...");
-        Set<Location> beacons = new HashSet<>();
+    private ScanResults findAllBeacons(org.bukkit.World bukkitWorld) {
+        plugin.getLogger().info("[DEBUG] Début de la recherche de beacons et bamboo_mosaic avec FAWE...");
+
+        ScanResults results = new ScanResults();
         com.sk89q.worldedit.world.World faweWorld = BukkitAdapter.adapt(bukkitWorld);
 
-        int scanRadius = 300; // Rayon -> 1000 blocs dans chaque direction depuis 0
+        int scanRadius = 300;
         BlockVector3 min = BlockVector3.at(-scanRadius, faweWorld.getMinY(), -scanRadius);
         BlockVector3 max = BlockVector3.at(scanRadius, faweWorld.getMaxY(), scanRadius);
-        // =====================================================================
 
         plugin.getLogger().info("[DEBUG] Scan de la région de " + min.toString() + " à " + max.toString());
 
@@ -127,48 +128,109 @@ public class ZoneScanner {
         long blocksScanned = 0;
         long lastLogTime = System.currentTimeMillis();
         int beaconsFoundCount = 0;
+        int bambooMosaicFoundCount = 0;
 
         for (BlockVector3 point : region) {
             blocksScanned++;
 
             if (faweWorld.getBlock(point).getBlockType() == BlockTypes.BEACON) {
-                beacons.add(BukkitAdapter.adapt(bukkitWorld, point));
+                results.beacons.add(BukkitAdapter.adapt(bukkitWorld, point));
                 beaconsFoundCount++;
                 plugin.getLogger().info("[DEBUG] Beacon trouvé à : " + point.toString());
+            } else if (faweWorld.getBlock(point).getBlockType() == BlockTypes.BAMBOO_MOSAIC) {
+                results.bambooMosaics.add(BukkitAdapter.adapt(bukkitWorld, point));
+                bambooMosaicFoundCount++;
+                plugin.getLogger().info("[DEBUG] Bamboo Mosaic trouvé à : " + point.toString());
             }
 
-            if (System.currentTimeMillis() - lastLogTime > 5000) { // Log de progression toutes les 5 secondes
+            if (System.currentTimeMillis() - lastLogTime > 5000) {
                 plugin.getLogger().info("[DEBUG] Progression du scan : " + String.format("%,d", blocksScanned) + " / " + String.format("%,d", volume) + " blocs...");
                 lastLogTime = System.currentTimeMillis();
             }
         }
 
-        plugin.getLogger().info("[DEBUG] Fin de la recherche FAWE. " + beaconsFoundCount + " beacons trouvés sur " + String.format("%,d", blocksScanned) + " blocs scannés.");
-        return beacons;
+        plugin.getLogger().info("[DEBUG] Fin de la recherche FAWE. " + beaconsFoundCount + " beacons et " + bambooMosaicFoundCount + " bamboo_mosaic trouvés sur " + String.format("%,d", blocksScanned) + " blocs scannés.");
+        return results;
+    }
+
+    // Nouvelle classe pour les résultats de scan
+    private static class ScanResults {
+        final Set<Location> beacons = new HashSet<>();
+        final Set<Location> bambooMosaics = new HashSet<>();
     }
 
 
     // ===============================
     // CRÉATION DES ZONES (inchangé)
     // ===============================
-    private List<Zone> createZonesFromBeacons(Set<Location> beacons, String worldName) {
+    private List<Zone> createZonesFromBeacons(ScanResults scanResults, String worldName) {
         List<Zone> zones = new ArrayList<>();
         Set<Location> processedBeacons = new HashSet<>();
         int zoneCounter = 1;
 
-        for (Location beacon : beacons) {
+        for (Location beacon : scanResults.beacons) {
             if (processedBeacons.contains(beacon)) continue;
+
             String zoneId = "zone_" + worldName + "_" + zoneCounter;
             Zone zone = new Zone(zoneId, worldName);
-            Set<Location> zoneBeacons = findConnectedBeacons(beacon, beacons);
+
+            Set<Location> zoneBeacons = findConnectedBeacons(beacon, scanResults.beacons);
             for (Location zoneBeacon : zoneBeacons) {
                 zone.addBeacon(zoneBeacon);
                 processedBeacons.add(zoneBeacon);
             }
+
+            // Trouver le bamboo_mosaic le plus proche pour cette zone
+            Location teleportLocation = findClosestBambooMosaic(zone, scanResults.bambooMosaics);
+            if (teleportLocation != null) {
+                Location centeredTeleportLocation = teleportLocation.clone().add(0.5, 0, 0.5);
+                float yaw = calculateYawTowardsZone(centeredTeleportLocation, zone.getCenterLocation());
+                zone.setTeleportLocation(centeredTeleportLocation, yaw, 0.0f); // pitch = 0
+            }
+
             zones.add(zone);
             zoneCounter++;
         }
+
         return zones;
+    }
+
+    private Location findClosestBambooMosaic(Zone zone, Set<Location> bambooMosaics) {
+        Location zoneCenter = zone.getCenterLocation();
+        if (zoneCenter == null || bambooMosaics.isEmpty()) return null;
+
+        Location closest = null;
+        double minDistance = Double.MAX_VALUE;
+
+        for (Location bamboo : bambooMosaics) {
+            double distance = zoneCenter.distance(bamboo);
+            if (distance < minDistance) {
+                minDistance = distance;
+                closest = bamboo;
+            }
+        }
+
+        return closest;
+    }
+
+    private float calculateYawTowardsZone(Location bambooLocation, Location zoneCenter) {
+        if (zoneCenter == null) return 0.0f;
+
+        double dx = zoneCenter.getX() - bambooLocation.getX();
+        double dz = zoneCenter.getZ() - bambooLocation.getZ();
+
+        // Calculer l'angle en radians puis convertir en degrés
+        double angle = Math.atan2(-dx, dz);
+        float yaw = (float) Math.toDegrees(angle);
+
+
+        float roundedYaw = Math.round(yaw / 90.0f) * 90.0f;
+
+        if (roundedYaw == -180) {
+            roundedYaw = 180;
+        }
+
+        return roundedYaw;
     }
 
     private Set<Location> findConnectedBeacons(Location startBeacon, Set<Location> allBeacons) {

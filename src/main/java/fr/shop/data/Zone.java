@@ -22,6 +22,11 @@ public class Zone {
     private Set<Location> cachedZoneBlocks;
     private boolean cacheValid = false;
 
+    private Location teleportLocation;
+    private float teleportYaw;
+    private float teleportPitch;
+    private boolean hasTeleportLocation = false;
+
     // Constantes pour la zone (optimisation)
     private static final int ZONE_BELOW = 1;  // 1 bloc en dessous
     private static final int ZONE_ABOVE = 20; // 20 blocs au-dessus
@@ -269,6 +274,7 @@ public class Zone {
      * Sauvegarde SEULEMENT les beacons (pas tous les blocs)
      */
     public void saveToConfig(ConfigurationSection section) {
+        // Sauvegarder les données existantes
         section.set("world", worldName);
         section.set("beaconCount", beaconLocations.size());
 
@@ -278,19 +284,28 @@ public class Zone {
             section.set("center.z", centerLocation.getZ());
         }
 
-        // SEULEMENT les beacons - pas tous les blocs !
+        // Sauvegarder les beacons
         List<String> beaconStrings = new ArrayList<>();
         for (Location beacon : beaconLocations) {
             beaconStrings.add(beacon.getBlockX() + "," + beacon.getBlockY() + "," + beacon.getBlockZ());
         }
         section.set("beacons", beaconStrings);
 
-        // Plus de sauvegarde des blocs individuels !
-        // Les blocs sont calculés à la demande à partir des beacons
+        // Nouveau: Sauvegarder la téléportation
+        if (hasTeleportLocation && teleportLocation != null) {
+            section.set("teleport.x", teleportLocation.getX());
+            section.set("teleport.y", teleportLocation.getY());
+            section.set("teleport.z", teleportLocation.getZ());
+            section.set("teleport.yaw", teleportYaw);
+            section.set("teleport.pitch", teleportPitch);
+            section.set("teleport.enabled", true);
+        } else {
+            section.set("teleport.enabled", false);
+        }
     }
 
     /**
-     * Charge une zone depuis une section de configuration
+     * Chargement avec les données de téléportation
      */
     public static Zone loadFromConfig(String id, ConfigurationSection section) {
         String worldName = section.getString("world");
@@ -298,7 +313,7 @@ public class Zone {
 
         Zone zone = new Zone(id, worldName);
 
-        // Charger le centre (optionnel)
+        // Charger les données existantes (centre, beacons)
         if (section.contains("center")) {
             zone.centerLocation = new Location(
                     Bukkit.getWorld(worldName),
@@ -308,7 +323,6 @@ public class Zone {
             );
         }
 
-        // Charger SEULEMENT les beacons
         List<String> beaconStrings = section.getStringList("beacons");
         for (String beaconStr : beaconStrings) {
             try {
@@ -325,15 +339,30 @@ public class Zone {
             }
         }
 
-        // Les blocs seront calculés à la demande
+        // Nouveau: Charger la téléportation
+        if (section.getBoolean("teleport.enabled", false)) {
+            try {
+                Location teleportLoc = new Location(
+                        Bukkit.getWorld(worldName),
+                        section.getDouble("teleport.x"),
+                        section.getDouble("teleport.y"),
+                        section.getDouble("teleport.z")
+                );
+                float yaw = (float) section.getDouble("teleport.yaw", 0.0);
+                float pitch = (float) section.getDouble("teleport.pitch", 0.0);
+
+                zone.setTeleportLocation(teleportLoc, yaw, pitch);
+            } catch (Exception e) {
+                // Ignorer les erreurs de téléportation
+                zone.hasTeleportLocation = false;
+            }
+        }
+
         zone.updateCenter();
         return zone;
     }
 
-    // ===============================
-    // MÉTHODES UTILITAIRES
-    // ===============================
-
+    // Mise à jour toString pour inclure la téléportation
     @Override
     public String toString() {
         return "Zone{" +
@@ -341,8 +370,74 @@ public class Zone {
                 ", worldName='" + worldName + '\'' +
                 ", beaconCount=" + beaconLocations.size() +
                 ", blockCount=" + getBlockCount() +
+                ", hasTeleport=" + hasTeleportLocation() +
                 '}';
     }
+
+    /**
+     * Définit la location de téléportation avec yaw et pitch
+     */
+    public void setTeleportLocation(Location location, float yaw, float pitch) {
+        this.teleportLocation = location != null ? location.clone() : null;
+        this.teleportYaw = yaw;
+        this.teleportPitch = pitch;
+        this.hasTeleportLocation = (location != null);
+        invalidateCache(); // Invalider le cache si nécessaire
+    }
+
+    /**
+     * Obtient la location de téléportation avec orientation
+     */
+    public Location getTeleportLocation() {
+        if (teleportLocation == null) return null;
+
+        Location loc = teleportLocation.clone();
+        loc.setYaw(teleportYaw);
+        loc.setPitch(teleportPitch);
+        return loc;
+    }
+
+    /**
+     * Obtient la location brute de téléportation (sans orientation)
+     */
+    public Location getRawTeleportLocation() {
+        return teleportLocation != null ? teleportLocation.clone() : null;
+    }
+
+    /**
+     * Vérifie si cette zone a une téléportation définie
+     */
+    public boolean hasTeleportLocation() {
+        return hasTeleportLocation && teleportLocation != null;
+    }
+
+    /**
+     * Obtient le yaw de téléportation
+     */
+    public float getTeleportYaw() {
+        return teleportYaw;
+    }
+
+    /**
+     * Obtient le pitch de téléportation
+     */
+    public float getTeleportPitch() {
+        return teleportPitch;
+    }
+
+    /**
+     * Supprime la téléportation
+     */
+    public void removeTeleportLocation() {
+        this.teleportLocation = null;
+        this.teleportYaw = 0.0f;
+        this.teleportPitch = 0.0f;
+        this.hasTeleportLocation = false;
+    }
+
+    // ===============================
+    // MÉTHODES UTILITAIRES
+    // ===============================
 
     @Override
     public boolean equals(Object o) {

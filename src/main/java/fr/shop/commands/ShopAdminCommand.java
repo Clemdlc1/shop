@@ -2,8 +2,10 @@ package fr.shop.commands;
 
 import fr.shop.PlayerShops;
 import fr.shop.data.Zone;
+import fr.shop.managers.MarketZoneBackupManager;
 import fr.shop.managers.ZoneManager;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -11,9 +13,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
+import java.util.*;
 import java.util.stream.Collectors;
 
 /**
@@ -23,10 +23,13 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
 
     private final PlayerShops plugin;
     private final ZoneManager zoneManager;
+    private final MarketZoneBackupManager marketBackupManager;
 
     public ShopAdminCommand(PlayerShops plugin) {
         this.plugin = plugin;
         this.zoneManager = plugin.getZoneManager();
+        this.marketBackupManager = plugin.getMarketZoneBackupManager();
+
     }
 
     @Override
@@ -74,6 +77,18 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
 
             case "help":
                 sendAdminHelp(sender);
+                break;
+
+            case "backup":
+                handleMarketBackupCommand(sender, args);
+                break;
+
+            case "restore":
+                handleMarketRestoreCommand(sender, args);
+
+            case "teleport":
+            case "tp":
+                handleTeleportCommand(sender, args);
                 break;
 
             default:
@@ -390,8 +405,10 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§e/shopadmin zones list [monde] §7- Lister les zones");
         sender.sendMessage("§e/shopadmin zones info <zoneId> §7- Info d'une zone");
         sender.sendMessage("§e/shopadmin zones delete <zoneId> §7- Supprimer une zone");
-        sender.sendMessage("§e/shopadmin backup <zone/all> §7- Sauvegarder une zone");
-        sender.sendMessage("§e/shopadmin restore <zoneId> §7- Restaurer une zone");
+        sender.sendMessage("§e/shopadmin tp <zoneId> §7- Se téléporter à une zone");
+        sender.sendMessage("§e/shopadmin backup <zoneId|all> §7- Backup market zone(s)");
+        sender.sendMessage("§e/shopadmin restore <zoneId> §7- Restaurer market zone");
+        sender.sendMessage("§e/shopadmin marketlist §7- Lister les backups market");
         sender.sendMessage("§e/shopadmin validate §7- Valider l'intégrité des zones");
         sender.sendMessage("§e/shopadmin reload §7- Recharger les configurations");
         sender.sendMessage("§e/shopadmin stats §7- Statistiques des zones");
@@ -409,7 +426,11 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
-            completions.addAll(Arrays.asList("scan", "zones", "backup", "restore", "validate", "reload", "stats", "optimize", "cache", "help"));
+            completions.addAll(Arrays.asList(
+                    "scan", "zones", "validate", "reload", "stats", "optimize", "cache",
+                    "marketbackup", "mbackup", "marketrestore", "mrestore", "marketlist", "mlist",
+                    "teleport", "tp", "help"
+            ));
         } else if (args.length == 2) {
             String subCommand = args[0].toLowerCase();
 
@@ -426,6 +447,26 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
 
                 case "cache":
                     completions.add("clear");
+                    break;
+
+                case "marketbackup":
+                case "mbackup":
+                    completions.add("all");
+                    completions.addAll(zoneManager.getAllZones().stream()
+                            .map(Zone::getId)
+                            .toList());
+                    break;
+
+                case "marketrestore":
+                case "mrestore":
+                    completions.addAll(marketBackupManager.getMarketBackedUpZones());
+                    break;
+
+                case "teleport":
+                case "tp":
+                    completions.addAll(zoneManager.getAllZones().stream()
+                            .map(Zone::getId)
+                            .toList());
                     break;
             }
         } else if (args.length == 3) {
@@ -448,5 +489,195 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
         return completions.stream()
                 .filter(completion -> completion.toLowerCase().startsWith(args[args.length - 1].toLowerCase()))
                 .collect(Collectors.toList());
+    }
+
+    private void handleMarketBackupCommand(CommandSender sender, String[] args) {
+        // La vérification du Player a été déplacée ici pour s'appliquer à 'all' également
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("§c§lSHOP §8» §cCette commande ne peut être utilisée que par un joueur!");
+            return;
+        }
+
+        if (args.length < 2) {
+            sender.sendMessage("§c§lSHOP §8» §cUtilisation: §e/shopadmin backup <zoneId|all>");
+            return;
+        }
+
+        String target = args[1].toLowerCase();
+        Player player = (Player) sender;
+
+        if ("all".equals(target)) {
+            // Backup de toutes les zones
+            Collection<Zone> allZones = zoneManager.getAllZones();
+            if (allZones.isEmpty()) {
+                sender.sendMessage("§c§lSHOP §8» §cAucune zone trouvée!");
+                return;
+            }
+
+            sender.sendMessage("§a§lSHOP §8» §aDébut du backup séquentiel de §e" + allZones.size() + " §azones...");
+
+            // Utiliser une file d'attente pour traiter les zones une par une
+            Queue<Zone> zoneQueue = new LinkedList<>(allZones);
+            processNextZoneInBackupQueue(player, zoneQueue, allZones.size());
+
+        } else {
+            // Backup d'une zone spécifique (le code existant est correct pour une seule zone)
+            Zone zone = zoneManager.getZone(target);
+            if (zone == null) {
+                sender.sendMessage("§c§lSHOP §8» §cZone introuvable: " + target);
+                return;
+            }
+
+            marketBackupManager.backupMarketZone(target, player);
+        }
+    }
+
+    /**
+     * Traite la prochaine zone dans la file d'attente de backup de manière séquentielle.
+     */
+    private void processNextZoneInBackupQueue(Player initiator, Queue<Zone> zoneQueue, int total) {
+        if (zoneQueue.isEmpty()) {
+            initiator.sendMessage("§a§lSHOP §8» §aBackup de toutes les zones terminé !");
+            return;
+        }
+
+        Zone zone = zoneQueue.poll();
+        int processedCount = total - zoneQueue.size();
+
+        initiator.sendMessage("§7§lSHOP §8» §7Backup de §e" + zone.getId() + " §7(§e" + processedCount + "§7/§e" + total + "§7)...");
+
+        marketBackupManager.backupMarketZone(zone.getId(), null).thenAccept(result -> {
+            // Le résultat de chaque backup est loggué dans la console
+            // On peut notifier le joueur à la fin de chaque étape
+            if (result.isSuccess()) {
+                plugin.getLogger().info("Backup market réussi pour zone " + zone.getId() + " - Compression: " + result.getCompressionRatio());
+            } else {
+                plugin.getLogger().warning("Backup market échoué pour zone " + zone.getId() + " - " + result.getErrorMessage());
+                initiator.sendMessage("§c§lSHOP §8» §cÉchec backup pour §e" + zone.getId() + ": " + result.getErrorMessage());
+            }
+
+            // Planifier le traitement de la prochaine zone sur le thread principal
+            new org.bukkit.scheduler.BukkitRunnable() {
+                @Override
+                public void run() {
+                    processNextZoneInBackupQueue(initiator, zoneQueue, total);
+                }
+            }.runTask(plugin);
+        });
+    }
+
+    private void handleMarketRestoreCommand(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("§c§lSHOP §8» §cCette commande ne peut être utilisée que par un joueur!");
+            return;
+        }
+
+        Player player = (Player) sender;
+
+        if (args.length < 2) {
+            sender.sendMessage("§c§lSHOP §8» §cUtilisation: §e/shopadmin marketrestore <zoneId>");
+            return;
+        }
+
+        String zoneId = args[1];
+        Zone zone = zoneManager.getZone(zoneId);
+        if (zone == null) {
+            sender.sendMessage("§c§lSHOP §8» §cZone introuvable: " + zoneId);
+            return;
+        }
+
+        if (!marketBackupManager.hasMarketBackup(zoneId)) {
+            sender.sendMessage("§c§lSHOP §8» §cAucun backup market trouvé pour la zone: " + zoneId);
+            return;
+        }
+
+        // Afficher les infos du backup avant restauration
+        long backupTime = marketBackupManager.getMarketBackupTimestamp(zoneId);
+        String timeAgo = formatTimeAgo(System.currentTimeMillis() - backupTime);
+
+        sender.sendMessage("§e§lSHOP §8» §eRestauration du backup market créé il y a §f" + timeAgo);
+
+        marketBackupManager.restoreMarketZone(zoneId, player).thenAccept(result -> {
+            // Le résultat est déjà envoyé au joueur dans le MarketZoneBackupManager
+        });
+    }
+
+    private void handleMarketListCommand(CommandSender sender) {
+        Set<String> backedUpZones = marketBackupManager.getMarketBackedUpZones();
+
+        if (backedUpZones.isEmpty()) {
+            sender.sendMessage("§c§lSHOP §8» §cAucun backup market trouvé!");
+            return;
+        }
+
+        sender.sendMessage("§6§l▬▬▬▬▬▬▬ MARKET BACKUPS ▬▬▬▬▬▬▬");
+
+        List<String> sortedZones = new ArrayList<>(backedUpZones);
+        sortedZones.sort(String::compareTo);
+
+        for (String zoneId : sortedZones) {
+            long timestamp = marketBackupManager.getMarketBackupTimestamp(zoneId);
+            String timeAgo = formatTimeAgo(System.currentTimeMillis() - timestamp);
+
+            Zone zone = zoneManager.getZone(zoneId);
+            String status = zone != null ? "§aActive" : "§cZone supprimée";
+
+            sender.sendMessage("§e" + zoneId + " §7- " + status + " §7- Backup: §f" + timeAgo);
+        }
+
+        sender.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+        sender.sendMessage("§7Total: §e" + backedUpZones.size() + " §7backups market");
+    }
+
+    private void handleTeleportCommand(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player)) {
+            sender.sendMessage("§c§lSHOP §8» §cCette commande ne peut être utilisée que par un joueur!");
+            return;
+        }
+
+        Player player = (Player) sender;
+
+        if (args.length < 2) {
+            sender.sendMessage("§c§lSHOP §8» §cUtilisation: §e/shopadmin tp <zoneId>");
+            return;
+        }
+
+        String zoneId = args[1];
+        Zone zone = zoneManager.getZone(zoneId);
+        if (zone == null) {
+            sender.sendMessage("§c§lSHOP §8» §cZone introuvable: " + zoneId);
+            return;
+        }
+
+        if (zone.hasTeleportLocation()) {
+            Location teleportLoc = zone.getTeleportLocation();
+            player.teleport(teleportLoc);
+            player.sendMessage("§a§lSHOP §8» §aTéléporté à la zone §e" + zoneId + " §a(téléportation automatique)!");
+        } else if (zone.getCenterLocation() != null) {
+            Location centerLoc = zone.getCenterLocation();
+            // Ajuster la Y pour être au-dessus du sol
+            centerLoc.setY(centerLoc.getY() + 2);
+            player.teleport(centerLoc);
+            player.sendMessage("§a§lSHOP §8» §aTéléporté au centre de la zone §e" + zoneId + "§a!");
+        } else {
+            sender.sendMessage("§c§lSHOP §8» §cImpossible de déterminer la position de téléportation pour cette zone!");
+        }
+    }
+
+    private String formatTimeAgo(long millisAgo) {
+        long seconds = millisAgo / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        long days = hours / 24;
+
+        if (days > 0) {
+            return days + " jour" + (days > 1 ? "s" : "");
+        } else if (hours > 0) {
+            return hours + " heure" + (hours > 1 ? "s" : "");
+        } else if (minutes > 0) {
+            return minutes + " minute" + (minutes > 1 ? "s" : "");
+        } else {
+            return seconds + " seconde" + (seconds > 1 ? "s" : "");
+        }
     }
 }
