@@ -1,13 +1,11 @@
 package fr.shop;
 
+import fr.shop.commands.ShopAdminCommand;
 import fr.shop.commands.ShopCommand;
 import fr.shop.gui.ShopGUI;
 import fr.shop.hooks.PrisonTycoonHook;
 import fr.shop.listeners.ShopListeners;
-import fr.shop.managers.CommerceManager;
-import fr.shop.managers.ConfigManager;
-import fr.shop.managers.ShopManager;
-import fr.shop.managers.VisualManager;
+import fr.shop.managers.*;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class PlayerShops extends JavaPlugin {
@@ -19,6 +17,9 @@ public class PlayerShops extends JavaPlugin {
     private ShopManager shopManager;
     private CommerceManager commerceManager;
     private VisualManager visualManager;
+    private ShopBackupManager shopBackupManager;
+    private ZoneManager zoneManager;
+    private ZoneScanner zoneScanner;
     private ShopGUI shopGUI;
 
     // Getters
@@ -43,9 +44,13 @@ public class PlayerShops extends JavaPlugin {
         this.commerceManager = new CommerceManager(this);
         this.visualManager = new VisualManager(this);
         this.shopGUI = new ShopGUI(this);
+        this.zoneManager = new ZoneManager(this);
+        this.zoneScanner = new ZoneScanner(this, zoneManager);
+        this.shopBackupManager = new ShopBackupManager(this, zoneManager);
 
         // Enregistrement des commandes
         getCommand("shop").setExecutor(new ShopCommand(this));
+        getCommand("shopadmin").setExecutor(new ShopAdminCommand(this));
 
         // Enregistrement des listeners
         getServer().getPluginManager().registerEvents(new ShopListeners(this), this);
@@ -100,5 +105,17 @@ public class PlayerShops extends JavaPlugin {
 
     public ShopGUI getShopGUI() {
         return shopGUI;
+    }
+
+    public ZoneManager getZoneManager() {
+        return zoneManager;
+    }
+
+    public ShopBackupManager getShopBackupManager() {
+        return shopBackupManager;
+    }
+
+    public ZoneScanner getZoneScanner() {
+        return zoneScanner;
     }
 }

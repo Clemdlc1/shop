@@ -329,11 +329,13 @@ public class ShopManager {
             return false;
         }
 
-        // Créer le texte flottant à la position du joueur
-        Shop.FloatingText floatingText = new Shop.FloatingText(text, player.getLocation().clone());
+        // Créer le texte flottant au niveau de la tête du joueur
+        Location headLocation = player.getLocation().clone();
+        headLocation.add(0, 1.7, 0); // Ajouter 1.7 blocs pour placer au niveau de la tête
+        Shop.FloatingText floatingText = new Shop.FloatingText(text, headLocation);
         shop.addFloatingText(floatingText);
 
-        player.sendMessage("§a§lSHOP §8» §aTexte flottant ajouté à votre position!");
+        player.sendMessage("§a§lSHOP §8» §aTexte flottant ajouté au niveau de votre tête!");
         player.sendMessage("§7§lSHOP §8» §7Aperçu: " + ChatColor.translateAlternateColorCodes('&', text));
 
         // Mettre à jour l'affichage visuel

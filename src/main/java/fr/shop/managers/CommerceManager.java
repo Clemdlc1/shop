@@ -4,6 +4,9 @@ import fr.shop.PlayerShops;
 import fr.shop.data.ChestShop;
 import fr.shop.data.Shop;
 import fr.shop.hooks.PrisonTycoonHook;
+import net.md_5.bungee.api.chat.BaseComponent;
+import net.md_5.bungee.api.chat.HoverEvent;
+import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -115,7 +118,10 @@ public class CommerceManager {
         }
     }
 
-    public void startChestShopCreation(Player player, ItemStack item) {
+    /**
+     * Démarre la création d'un chest shop directement sur le coffre cliqué
+     */
+    public void startChestShopCreation(Player player, ItemStack item, Location chestLocation) {
         if (item == null || item.getType() == Material.AIR) {
             player.sendMessage("§c§lSHOP §8» §cVous devez tenir un item valide!");
             return;
@@ -127,6 +133,22 @@ public class CommerceManager {
             return;
         }
 
+        if (!shop.containsLocation(chestLocation)) {
+            player.sendMessage("§c§lSHOP §8» §cCe coffre doit être dans votre shop!");
+            return;
+        }
+
+        if (chestShops.containsKey(chestLocation)) {
+            player.sendMessage("§c§lSHOP §8» §cCe coffre a déjà un chest shop!");
+            return;
+        }
+
+        // Vérifier qu'il y a de la place pour un panneau
+        if (findBestSignLocation(chestLocation.getBlock()) == null) {
+            player.sendMessage("§c§lSHOP §8» §cPas de place pour placer un panneau adjacent au coffre!");
+            return;
+        }
+
         // Vérifier si c'est une legendary pickaxe
         if (hook.isLegendaryPickaxe(item)) {
             player.sendMessage("§c§lSHOP §8» §cVous ne pouvez pas vendre une pioche légendaire!");
@@ -134,47 +156,15 @@ public class CommerceManager {
         }
 
         PendingShopCreation pending = new PendingShopCreation(player.getUniqueId(), item.clone());
+        pending.setChestLocation(chestLocation); // Définir directement le coffre
         pendingCreations.put(player.getUniqueId(), pending);
 
-        player.sendMessage("§a§lSHOP §8» §aVeuillez faire un clic droit sur un coffre pour créer un chest shop!");
-        player.sendMessage("§7§lSHOP §8» §7Format du prix: §e<prix> [buy/sell] §7(défaut: buy)");
-        player.sendMessage("§7§lSHOP §8» §7Exemple: §e1000 buy §7ou §e500 sell §8(Tapez §ccancel §8pour annuler)");
-    }
-
-    public void handleChestClick(Player player, Block chest) {
-        PendingShopCreation pending = pendingCreations.get(player.getUniqueId());
-        if (pending == null) return;
-
-        if (chest.getType() != Material.CHEST) {
-            player.sendMessage("§c§lSHOP §8» §cVous devez cliquer sur un coffre!");
-            return;
-        }
-
-        Shop shop = plugin.getShopManager().getPlayerShop(player.getUniqueId());
-        if (shop == null || !shop.containsLocation(chest.getLocation())) {
-            player.sendMessage("§c§lSHOP §8» §cCe coffre doit être dans votre shop!");
-            return;
-        }
-
-        if (chestShops.containsKey(chest.getLocation())) {
-            player.sendMessage("§c§lSHOP §8» §cCe coffre a déjà un chest shop!");
-            return;
-        }
-
-        // Vérifier qu'il y a de la place pour un panneau
-        if (findBestSignLocation(chest) == null) {
-            player.sendMessage("§c§lSHOP §8» §cPas de place pour placer un panneau adjacent au coffre!");
-            return;
-        }
-
-        pending.setChestLocation(chest.getLocation());
-
         // Afficher le nom de l'item avec couleurs si renommé
-        String itemDisplay = getItemDisplayName(pending.getItem());
+        String itemDisplay = getItemDisplayName(item);
 
         player.sendMessage("§a§lSHOP §8» §aCoffre sélectionné pour: " + itemDisplay);
         player.sendMessage("§7§lSHOP §8» §7Tapez maintenant le prix et mode:");
-        player.sendMessage("§e§lSHOP §8» §eFormat: <prix> [buy/sell] - Exemple: §f1000 buy");
+        player.sendMessage("§e§lSHOP §8» §eFormat: <prix> [buy/sell] - Exemple: §f1000 buy §8(Tapez §ccancel §8pour annuler)");
     }
 
     public void handlePriceInput(Player player, String input) {
@@ -184,6 +174,13 @@ public class CommerceManager {
         if (input.equalsIgnoreCase("cancel")) {
             pendingCreations.remove(player.getUniqueId());
             player.sendMessage("§c§lSHOP §8» §cCréation de chest shop annulée!");
+            return;
+        }
+
+        // Vérifier que le coffre est toujours défini
+        if (pending.getChestLocation() == null) {
+            pendingCreations.remove(player.getUniqueId());
+            player.sendMessage("§c§lSHOP §8» §cErreur: Coffre non défini! Veuillez recommencer.");
             return;
         }
 
@@ -217,7 +214,19 @@ public class CommerceManager {
 
     private void createChestShop(Player player, PendingShopCreation pending) {
         Location chestLoc = pending.getChestLocation();
+
+        // Vérification de sécurité
+        if (chestLoc == null) {
+            player.sendMessage("§c§lSHOP §8» §cErreur: Emplacement du coffre invalide!");
+            return;
+        }
+
         Block chestBlock = chestLoc.getBlock();
+
+        if (chestBlock.getType() != Material.CHEST) {
+            player.sendMessage("§c§lSHOP §8» §cErreur: Le bloc n'est plus un coffre!");
+            return;
+        }
 
         // Trouver le meilleur emplacement pour le panneau
         Location signLoc = findBestSignLocation(chestBlock);
@@ -439,6 +448,25 @@ public class CommerceManager {
                 return;
             }
 
+            // Vérifier les permissions pour le shop
+            Shop shop = plugin.getShopManager().getShopAtLocation(chestBlock.getLocation());
+            if (shop != null && !shop.isMember(player.getUniqueId()) && !player.getUniqueId().equals(ownerId)) {
+                // Seuls les membres du shop et le propriétaire peuvent interagir
+                if (rightClick) {
+                    // Clic droit = voir les informations (autorisé pour tous)
+                    showChestShopInfo(player, chestShop);
+                    return;
+                } else {
+                    // Clic gauche = acheter/vendre (autorisé pour tous)
+                    if (sellMode) {
+                        handleCustomerSell(player, chestShop);
+                    } else {
+                        handleCustomerPurchase(player, chestShop);
+                    }
+                    return;
+                }
+            }
+
             if (player.getUniqueId().equals(ownerId)) {
                 // Le propriétaire gère son shop
                 if (rightClick) {
@@ -449,7 +477,7 @@ public class CommerceManager {
                     handleOwnerInteraction(player, chestShop);
                 }
             } else {
-                // Un client
+                // Un client ou un membre du shop
                 if (rightClick) {
                     // Clic droit = voir les informations détaillées
                     showChestShopInfo(player, chestShop);
@@ -480,7 +508,7 @@ public class CommerceManager {
 
     private void showChestShopInfo(Player player, ChestShop chestShop) {
         String ownerName = chestShop.getOwnerName();
-        String itemDisplay = getItemDisplayName(chestShop.getItem());
+        String itemDisplay = getItemDisplayNameForInfo(chestShop.getItem());
         String mode = chestShop.isSellMode() ? "§cVente" : "§aAchat";
         String priceFormatted = formatPrice(chestShop.getPrice());
 
@@ -488,14 +516,21 @@ public class CommerceManager {
         player.sendMessage("§7Propriétaire: §e" + ownerName);
         player.sendMessage("§7Mode: " + mode);
         player.sendMessage("§7Prix: §e" + priceFormatted + " §7coins");
-        player.sendMessage("§7Item: " + itemDisplay + " §7x§f" + chestShop.getItem().getAmount());
 
-        // Afficher la lore si elle existe
+        // Envoyer l'item avec hover pour la lore
         if (chestShop.getItem().hasItemMeta() && chestShop.getItem().getItemMeta().hasLore()) {
-            player.sendMessage("§7Description:");
+            TextComponent itemComponent = new TextComponent("§7Item: " + itemDisplay + " §7x§f" + chestShop.getItem().getAmount() + " §8(Passez la souris)");
+
+            StringBuilder hoverText = new StringBuilder();
             for (String lore : chestShop.getItem().getItemMeta().getLore()) {
-                player.sendMessage("§8  " + lore);
+                if (hoverText.length() > 0) hoverText.append("\n");
+                hoverText.append(lore);
             }
+
+            itemComponent.setHoverEvent(new HoverEvent(HoverEvent.Action.SHOW_TEXT, new BaseComponent[]{new TextComponent(hoverText.toString())}));
+            player.spigot().sendMessage(itemComponent);
+        } else {
+            player.sendMessage("§7Item: " + itemDisplay + " §7x§f" + chestShop.getItem().getAmount());
         }
 
         if (chestShop.isSellMode()) {
@@ -518,7 +553,7 @@ public class CommerceManager {
 
         int stock = countItems(inv, chestShop.getItem());
         String mode = chestShop.isSellMode() ? "vente" : "achat";
-        String itemDisplay = getItemDisplayName(chestShop.getItem());
+        String itemDisplay = getItemDisplayNameForInfo(chestShop.getItem());
 
         owner.sendMessage("§6§lSHOP §8» §6Informations sur votre chest shop (§e" + mode + "§6):");
         owner.sendMessage("§7§lSHOP §8» §7Item: " + itemDisplay + " §7x§f" + chestShop.getItem().getAmount());
@@ -536,32 +571,34 @@ public class CommerceManager {
         Chest chest = (Chest) chestShop.getChestLocation().getBlock().getState();
         Inventory chestInv = chest.getInventory();
 
-        // Vérifier le stock
-        if (!hasEnoughItems(chestInv, chestShop.getItem())) {
+        // Trouver et récupérer les vrais items du coffre (avec leurs métadonnées)
+        ItemStack actualItemFromChest = findAndRetrieveItemFromInventory(chestInv, chestShop.getItem());
+        if (actualItemFromChest == null) {
             customer.sendMessage("§c§lSHOP §8» §cStock insuffisant!");
             return;
         }
 
         // Vérifier l'espace dans l'inventaire du client
-        if (!hasEnoughSpace(customer.getInventory(), chestShop.getItem())) {
+        if (!hasEnoughSpace(customer.getInventory(), actualItemFromChest)) {
             customer.sendMessage("§c§lSHOP §8» §cVotre inventaire est plein!");
+            // Remettre l'item dans le coffre
+            chestInv.addItem(actualItemFromChest);
             return;
         }
 
         // Effectuer la transaction
         if (!hook.removeCoins(customer.getUniqueId(), chestShop.getPrice())) {
             customer.sendMessage("§c§lSHOP §8» §cErreur lors de la transaction!");
+            // Remettre l'item dans le coffre
+            chestInv.addItem(actualItemFromChest);
             return;
         }
 
         // Donner les coins au propriétaire
         hook.addCoins(chestShop.getOwnerId(), chestShop.getPrice());
 
-        // Retirer l'item du coffre
-        removeItems(chestInv, chestShop.getItem());
-
-        // Donner l'item au client
-        customer.getInventory().addItem(chestShop.getItem().clone());
+        // Donner l'item réel au client (avec toutes ses métadonnées)
+        customer.getInventory().addItem(actualItemFromChest);
 
         customer.sendMessage("§a§lSHOP §8» §aAchat effectué! §7(§e" + chestShop.getPrice() + " §7coins)");
 
@@ -592,26 +629,34 @@ public class CommerceManager {
         Chest chest = (Chest) chestShop.getChestLocation().getBlock().getState();
         Inventory chestInv = chest.getInventory();
 
+        // Récupérer les vrais items du joueur (avec leurs métadonnées)
+        ItemStack actualItemFromPlayer = findAndRetrieveItemFromInventory(customer.getInventory(), chestShop.getItem());
+        if (actualItemFromPlayer == null) {
+            customer.sendMessage("§c§lSHOP §8» §cVous n'avez pas assez d'items!");
+            return;
+        }
+
         // Vérifier l'espace dans le coffre
-        if (!hasEnoughSpace(chestInv, chestShop.getItem())) {
+        if (!hasEnoughSpace(chestInv, actualItemFromPlayer)) {
             customer.sendMessage("§c§lSHOP §8» §cLe coffre est plein!");
+            // Remettre l'item au joueur
+            customer.getInventory().addItem(actualItemFromPlayer);
             return;
         }
 
         // Effectuer la transaction
         if (!hook.removeCoins(chestShop.getOwnerId(), chestShop.getPrice())) {
             customer.sendMessage("§c§lSHOP §8» §cErreur lors de la transaction!");
+            // Remettre l'item au joueur
+            customer.getInventory().addItem(actualItemFromPlayer);
             return;
         }
 
         // Donner les coins au client
         hook.addCoins(customer.getUniqueId(), chestShop.getPrice());
 
-        // Retirer l'item du client
-        removeItems(customer.getInventory(), chestShop.getItem());
-
-        // Ajouter l'item au coffre
-        chestInv.addItem(chestShop.getItem().clone());
+        // Ajouter l'item réel au coffre (avec toutes ses métadonnées)
+        chestInv.addItem(actualItemFromPlayer);
 
         customer.sendMessage("§a§lSHOP §8» §aVente effectuée! §7(+§e" + chestShop.getPrice() + " §7coins)");
 
@@ -691,6 +736,23 @@ public class CommerceManager {
         }
     }
 
+    private String getItemDisplayNameForInfo(ItemStack item) {
+        if (item.hasItemMeta() && item.getItemMeta().hasDisplayName()) {
+            // Item renommé - garder les couleurs sans afficher la lore
+            return item.getItemMeta().getDisplayName();
+        } else {
+            // Item normal - nom propre
+            String name = item.getType().name().toLowerCase().replace("_", " ");
+            String[] words = name.split(" ");
+            StringBuilder result = new StringBuilder();
+            for (String word : words) {
+                if (result.length() > 0) result.append(" ");
+                result.append(word.substring(0, 1).toUpperCase()).append(word.substring(1));
+            }
+            return "§f" + result.toString();
+        }
+    }
+
     private BlockFace getAttachedFace(Location signLoc, Location chestLoc) {
         int dx = chestLoc.getBlockX() - signLoc.getBlockX();
         int dz = chestLoc.getBlockZ() - signLoc.getBlockZ();
@@ -706,11 +768,34 @@ public class CommerceManager {
     private int countItems(Inventory inventory, ItemStack targetItem) {
         int count = 0;
         for (ItemStack item : inventory.getContents()) {
-            if (item != null && item.isSimilar(targetItem)) {
+            if (item != null && areItemsSimilarForShop(item, targetItem)) {
                 count += item.getAmount();
             }
         }
         return count / targetItem.getAmount();
+    }
+
+    /**
+     * Vérifie si deux items sont similaires pour le shop (compare material, nom et lore)
+     */
+    private boolean areItemsSimilarForShop(ItemStack item1, ItemStack item2) {
+        if (item1.getType() != item2.getType()) return false;
+
+        ItemMeta meta1 = item1.getItemMeta();
+        ItemMeta meta2 = item2.getItemMeta();
+
+        if (meta1 == null && meta2 == null) return true;
+        if (meta1 == null || meta2 == null) return false;
+
+        // Comparer les noms d'affichage
+        String name1 = meta1.hasDisplayName() ? meta1.getDisplayName() : null;
+        String name2 = meta2.hasDisplayName() ? meta2.getDisplayName() : null;
+        if (!java.util.Objects.equals(name1, name2)) return false;
+
+        // Comparer les lores
+        List<String> lore1 = meta1.hasLore() ? meta1.getLore() : null;
+        List<String> lore2 = meta2.hasLore() ? meta2.getLore() : null;
+        return java.util.Objects.equals(lore1, lore2);
     }
 
     private boolean hasEnoughItems(Inventory inventory, ItemStack targetItem) {
@@ -730,7 +815,7 @@ public class CommerceManager {
             if (slot == null) {
                 // Slot vide
                 remaining -= Math.min(remaining, item.getMaxStackSize());
-            } else if (slot.isSimilar(item)) {
+            } else if (areItemsSimilarForShop(slot, item)) {
                 // Slot avec le même item
                 int space = slot.getMaxStackSize() - slot.getAmount();
                 remaining -= Math.min(remaining, space);
@@ -740,18 +825,64 @@ public class CommerceManager {
         return remaining <= 0;
     }
 
+    /**
+     * Trouve et récupère un item spécifique du coffre en conservant toutes ses métadonnées
+     */
+    private ItemStack findAndRetrieveItemFromInventory(Inventory inventory, ItemStack targetItem) {
+        int amountNeeded = targetItem.getAmount();
+        ItemStack collectedItem = null;
+
+        for (int i = 0; i < inventory.getSize() && amountNeeded > 0; i++) {
+            ItemStack item = inventory.getItem(i);
+            if (item != null && areItemsSimilarForShop(item, targetItem)) {
+                int available = item.getAmount();
+
+                if (collectedItem == null) {
+                    // Premier item trouvé - créer la base avec ses métadonnées
+                    collectedItem = item.clone();
+                    collectedItem.setAmount(0);
+                }
+
+                if (available <= amountNeeded) {
+                    // Prendre tout l'item
+                    collectedItem.setAmount(collectedItem.getAmount() + available);
+                    inventory.setItem(i, null);
+                    amountNeeded -= available;
+                } else {
+                    // Prendre une partie
+                    collectedItem.setAmount(collectedItem.getAmount() + amountNeeded);
+                    ItemStack remainingItem = item.clone();
+                    remainingItem.setAmount(available - amountNeeded);
+                    inventory.setItem(i, remainingItem);
+                    amountNeeded = 0;
+                }
+            }
+        }
+
+        // Vérifier qu'on a récupéré assez d'items
+        if (collectedItem != null && collectedItem.getAmount() >= targetItem.getAmount()) {
+            collectedItem.setAmount(targetItem.getAmount());
+            return collectedItem;
+        }
+
+        return null; // Pas assez d'items trouvés
+    }
+
     private void removeItems(Inventory inventory, ItemStack targetItem) {
         int amountToRemove = targetItem.getAmount();
 
         for (int i = 0; i < inventory.getSize() && amountToRemove > 0; i++) {
             ItemStack item = inventory.getItem(i);
-            if (item != null && item.isSimilar(targetItem)) {
+            if (item != null && areItemsSimilarForShop(item, targetItem)) {
                 int available = item.getAmount();
                 if (available <= amountToRemove) {
                     inventory.setItem(i, null);
                     amountToRemove -= available;
                 } else {
-                    item.setAmount(available - amountToRemove);
+                    // IMPORTANT: Créer une copie pour conserver les métadonnées originales
+                    ItemStack remainingItem = item.clone();
+                    remainingItem.setAmount(available - amountToRemove);
+                    inventory.setItem(i, remainingItem);
                     amountToRemove = 0;
                 }
             }
@@ -831,6 +962,22 @@ public class CommerceManager {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /**
+     * Vérifie si un joueur peut interagir avec un coffre (pour les chest shops)
+     */
+    public boolean canPlayerInteractWithChest(Player player, Location chestLocation) {
+        if (isChestShop(chestLocation)) {
+            // C'est un chest shop - autoriser la consultation des infos mais pas l'ouverture directe
+            return false;
+        }
+
+        // Coffre normal - vérifier les permissions du shop
+        Shop shop = plugin.getShopManager().getShopAtLocation(chestLocation);
+        if (shop == null) return true; // Pas dans un shop
+
+        return shop.isMember(player.getUniqueId());
     }
 
     public void removeChestShop(Location chestLocation) {

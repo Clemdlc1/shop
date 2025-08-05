@@ -147,7 +147,7 @@ public class ShopListeners implements Listener {
         // Gestion des chest shops
         if (block.getState() instanceof Sign) {
             if (action == Action.RIGHT_CLICK_BLOCK) {
-                // Clic droit = informations détaillées ou suppression (propriétaire)
+                event.setCancelled(true); // Empêcher la modification
                 commerceManager.handleChestShopInteraction(player, block, true);
                 return;
             } else if (action == Action.LEFT_CLICK_BLOCK) {
@@ -155,6 +155,18 @@ public class ShopListeners implements Listener {
                 event.setCancelled(true); // Empêcher la casse du panneau
                 commerceManager.handleChestShopInteraction(player, block, false);
                 return;
+            }
+        }
+
+        // Protection des coffres de chest shop contre l'ouverture directe
+        if (action == Action.RIGHT_CLICK_BLOCK && block.getType() == Material.CHEST) {
+            if (commerceManager.isChestShop(block.getLocation())) {
+                Shop shop = shopManager.getShopAtLocation(block.getLocation());
+                if (shop != null && !shop.isMember(player.getUniqueId())) {
+                    event.setCancelled(true);
+                    player.sendMessage("§c§lSHOP §8» §cUtilisez le panneau pour interagir avec ce chest shop!");
+                    return;
+                }
             }
         }
 
@@ -174,18 +186,30 @@ public class ShopListeners implements Listener {
                     // Commencer la création si pas déjà un chest shop
                     if (!commerceManager.isChestShop(block.getLocation())) {
                         event.setCancelled(true);
-                        commerceManager.startChestShopCreation(player, itemInHand);
+                        // Appeler la nouvelle méthode avec le coffre directement
+                        commerceManager.startChestShopCreation(player, itemInHand, block.getLocation());
                         return;
                     }
                 }
             }
         }
 
-        // Gestion des créations en attente
-        if (action == Action.RIGHT_CLICK_BLOCK && block.getType() == Material.CHEST &&
-                commerceManager.hasPendingCreation(player.getUniqueId())) {
-            event.setCancelled(true);
-            commerceManager.handleChestClick(player, block);
+        // Protection générale des coffres dans les shops
+        if (action == Action.RIGHT_CLICK_BLOCK && block.getType() == Material.CHEST) {
+            if (!commerceManager.canPlayerInteractWithChest(player, block.getLocation())) {
+                // Vérifier si c'est un chest shop
+                if (commerceManager.isChestShop(block.getLocation())) {
+                    event.setCancelled(true);
+                    player.sendMessage("§c§lSHOP §8» §cUtilisez le panneau pour interagir avec ce chest shop!");
+                } else {
+                    // Coffre normal dans un shop où le joueur n'a pas les permissions
+                    Shop shop = shopManager.getShopAtLocation(block.getLocation());
+                    if (shop != null && !shop.isMember(player.getUniqueId())) {
+                        event.setCancelled(true);
+                        player.sendMessage("§c§lSHOP §8» §cVous ne pouvez pas ouvrir ce coffre!");
+                    }
+                }
+            }
         }
     }
 

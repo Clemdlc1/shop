@@ -4,13 +4,17 @@ main: fr.shop.PlayerShops
 author: YourName
 description: Plugin de shops joueur avec système de location et commerce
 api-version: 1.21
-depend: [ PrisonTycoon ]
+depend: [ PrisonTycoon, FastAsyncWorldEdit  ]
 
 commands:
   shop:
     description: Commande principale des shops joueur
     usage: /shop <args>
     aliases: [ shops, playershop, pshop ]
+
+  shopadmin:
+    description: Commande principale des shops joueur
+    usage: /adminshop <args>
 
 permissions:
   playershops.use:
