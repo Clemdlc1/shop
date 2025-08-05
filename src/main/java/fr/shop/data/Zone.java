@@ -8,20 +8,28 @@ import java.util.*;
 
 /**
  * Représente une zone de shop définie par des beacons adjacents
+ * Version optimisée : ne stocke que les beacons, calcule les blocs à la demande
  */
 public class Zone {
 
     private final String id;
     private final Set<Location> beaconLocations;
-    private final Set<Location> zoneBlocks;
-    private Location centerLocation;
     private String worldName;
+
+    // Cache pour éviter les recalculs
+    private Location centerLocation;
+    private BoundingBox cachedBoundingBox;
+    private Set<Location> cachedZoneBlocks;
+    private boolean cacheValid = false;
+
+    // Constantes pour la zone (optimisation)
+    private static final int ZONE_BELOW = 1;  // 1 bloc en dessous
+    private static final int ZONE_ABOVE = 20; // 20 blocs au-dessus
 
     public Zone(String id, String worldName) {
         this.id = id;
         this.worldName = worldName;
         this.beaconLocations = new HashSet<>();
-        this.zoneBlocks = new HashSet<>();
     }
 
     // ===============================
@@ -29,35 +37,40 @@ public class Zone {
     // ===============================
 
     /**
-     * Ajoute un beacon à la zone et calcule les blocs affectés
+     * Ajoute un beacon à la zone
      */
     public void addBeacon(Location beaconLocation) {
         beaconLocations.add(beaconLocation.clone());
-        addBlocksFromBeacon(beaconLocation);
+        invalidateCache();
         updateCenter();
     }
 
     /**
-     * Ajoute tous les blocs affectés par un beacon
-     * Zone : 1 bloc en dessous jusqu'à 20 blocs au-dessus
+     * Supprime un beacon de la zone
      */
-    private void addBlocksFromBeacon(Location beaconLocation) {
-        int beaconX = beaconLocation.getBlockX();
-        int beaconY = beaconLocation.getBlockY();
-        int beaconZ = beaconLocation.getBlockZ();
-
-        // De 1 bloc en dessous à 20 blocs au-dessus
-        for (int y = beaconY - 1; y <= beaconY + 20; y++) {
-            Location blockLoc = new Location(beaconLocation.getWorld(), beaconX, y, beaconZ);
-            zoneBlocks.add(blockLoc);
-        }
+    public void removeBeacon(Location beaconLocation) {
+        beaconLocations.remove(beaconLocation);
+        invalidateCache();
+        updateCenter();
     }
 
     /**
-     * Met à jour le centre approximatif de la zone
+     * Invalide le cache quand la zone change
+     */
+    private void invalidateCache() {
+        cacheValid = false;
+        cachedZoneBlocks = null;
+        cachedBoundingBox = null;
+    }
+
+    /**
+     * Met à jour le centre de la zone
      */
     private void updateCenter() {
-        if (beaconLocations.isEmpty()) return;
+        if (beaconLocations.isEmpty()) {
+            centerLocation = null;
+            return;
+        }
 
         double totalX = 0, totalY = 0, totalZ = 0;
         for (Location beacon : beaconLocations) {
@@ -76,20 +89,72 @@ public class Zone {
     }
 
     // ===============================
-    // MÉTHODES DE VÉRIFICATION
+    // MÉTHODES DE CALCUL OPTIMISÉES
     // ===============================
 
     /**
-     * Vérifie si une location est dans cette zone
+     * Calcule tous les blocs de la zone (avec cache)
+     */
+    private Set<Location> calculateZoneBlocks() {
+        if (cacheValid && cachedZoneBlocks != null) {
+            return cachedZoneBlocks;
+        }
+
+        Set<Location> blocks = new HashSet<>();
+
+        for (Location beacon : beaconLocations) {
+            // Ajouter tous les blocs de cette colonne de beacon
+            int beaconX = beacon.getBlockX();
+            int beaconY = beacon.getBlockY();
+            int beaconZ = beacon.getBlockZ();
+
+            for (int y = beaconY - ZONE_BELOW; y <= beaconY + ZONE_ABOVE; y++) {
+                blocks.add(new Location(beacon.getWorld(), beaconX, y, beaconZ));
+            }
+        }
+
+        cachedZoneBlocks = blocks;
+        cacheValid = true;
+        return blocks;
+    }
+
+    /**
+     * Vérifie si une location est dans cette zone (optimisé avec bounding box)
      */
     public boolean containsLocation(Location location) {
         if (location == null || !location.getWorld().getName().equals(worldName)) {
             return false;
         }
 
+        // Optimisation 1: Vérifier d'abord la bounding box
+        BoundingBox bounds = getBoundingBox();
+        if (bounds != null && !bounds.contains(location)) {
+            return false;
+        }
+
+        // Optimisation 2: Vérifier directement si c'est dans une colonne de beacon
         Location blockLoc = new Location(location.getWorld(),
                 location.getBlockX(), location.getBlockY(), location.getBlockZ());
-        return zoneBlocks.contains(blockLoc);
+
+        return isInBeaconColumn(blockLoc);
+    }
+
+    /**
+     * Vérifie rapidement si une location est dans une colonne de beacon
+     */
+    private boolean isInBeaconColumn(Location location) {
+        int x = location.getBlockX();
+        int y = location.getBlockY();
+        int z = location.getBlockZ();
+
+        for (Location beacon : beaconLocations) {
+            if (beacon.getBlockX() == x && beacon.getBlockZ() == z) {
+                int beaconY = beacon.getBlockY();
+                return y >= (beaconY - ZONE_BELOW) && y <= (beaconY + ZONE_ABOVE);
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -107,7 +172,7 @@ public class Zone {
     }
 
     /**
-     * Vérifie si deux beacons sont adjacents (collés)
+     * Vérifie si deux beacons sont adjacents (partageant une face)
      */
     private boolean isAdjacent(Location loc1, Location loc2) {
         if (!loc1.getWorld().equals(loc2.getWorld())) return false;
@@ -116,15 +181,14 @@ public class Zone {
         int dy = Math.abs(loc1.getBlockY() - loc2.getBlockY());
         int dz = Math.abs(loc1.getBlockZ() - loc2.getBlockZ());
 
-        // Adjacent si la distance est de 1 bloc dans au moins une direction
-        // et 0 dans les autres (partage une face)
+        // Adjacent si distance de 1 bloc dans exactement une direction
         return (dx == 1 && dy == 0 && dz == 0) ||
                 (dx == 0 && dy == 1 && dz == 0) ||
                 (dx == 0 && dy == 0 && dz == 1);
     }
 
     // ===============================
-    // GETTERS
+    // GETTERS OPTIMISÉS
     // ===============================
 
     public String getId() {
@@ -139,8 +203,11 @@ public class Zone {
         return new HashSet<>(beaconLocations);
     }
 
+    /**
+     * Retourne tous les blocs de la zone (calculés à la demande)
+     */
     public Set<Location> getZoneBlocks() {
-        return new HashSet<>(zoneBlocks);
+        return new HashSet<>(calculateZoneBlocks());
     }
 
     public Location getCenterLocation() {
@@ -151,16 +218,55 @@ public class Zone {
         return beaconLocations.size();
     }
 
+    /**
+     * Calcule le nombre de blocs total (sans créer la Set complète)
+     */
     public int getBlockCount() {
-        return zoneBlocks.size();
+        return beaconLocations.size() * (ZONE_ABOVE + ZONE_BELOW + 1);
     }
 
     // ===============================
-    // SÉRIALISATION
+    // BOUNDING BOX OPTIMISÉE
     // ===============================
 
     /**
-     * Sauvegarde la zone dans une section de configuration
+     * Obtient les limites de la zone (avec cache)
+     */
+    public BoundingBox getBoundingBox() {
+        if (cacheValid && cachedBoundingBox != null) {
+            return cachedBoundingBox;
+        }
+
+        if (beaconLocations.isEmpty()) return null;
+
+        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
+
+        for (Location beacon : beaconLocations) {
+            int x = beacon.getBlockX();
+            int y = beacon.getBlockY();
+            int z = beacon.getBlockZ();
+
+            minX = Math.min(minX, x);
+            maxX = Math.max(maxX, x);
+            minZ = Math.min(minZ, z);
+            maxZ = Math.max(maxZ, z);
+
+            // Y inclut la zone d'extension
+            minY = Math.min(minY, y - ZONE_BELOW);
+            maxY = Math.max(maxY, y + ZONE_ABOVE);
+        }
+
+        cachedBoundingBox = new BoundingBox(minX, minY, minZ, maxX, maxY, maxZ);
+        return cachedBoundingBox;
+    }
+
+    // ===============================
+    // SÉRIALISATION OPTIMISÉE
+    // ===============================
+
+    /**
+     * Sauvegarde SEULEMENT les beacons (pas tous les blocs)
      */
     public void saveToConfig(ConfigurationSection section) {
         section.set("world", worldName);
@@ -172,19 +278,15 @@ public class Zone {
             section.set("center.z", centerLocation.getZ());
         }
 
-        // Sauvegarder les beacons
+        // SEULEMENT les beacons - pas tous les blocs !
         List<String> beaconStrings = new ArrayList<>();
         for (Location beacon : beaconLocations) {
             beaconStrings.add(beacon.getBlockX() + "," + beacon.getBlockY() + "," + beacon.getBlockZ());
         }
         section.set("beacons", beaconStrings);
 
-        // Sauvegarder les blocs de la zone (compressé)
-        List<String> blockStrings = new ArrayList<>();
-        for (Location block : zoneBlocks) {
-            blockStrings.add(block.getBlockX() + "," + block.getBlockY() + "," + block.getBlockZ());
-        }
-        section.set("blocks", blockStrings);
+        // Plus de sauvegarde des blocs individuels !
+        // Les blocs sont calculés à la demande à partir des beacons
     }
 
     /**
@@ -196,7 +298,7 @@ public class Zone {
 
         Zone zone = new Zone(id, worldName);
 
-        // Charger le centre
+        // Charger le centre (optionnel)
         if (section.contains("center")) {
             zone.centerLocation = new Location(
                     Bukkit.getWorld(worldName),
@@ -206,7 +308,7 @@ public class Zone {
             );
         }
 
-        // Charger les beacons
+        // Charger SEULEMENT les beacons
         List<String> beaconStrings = section.getStringList("beacons");
         for (String beaconStr : beaconStrings) {
             try {
@@ -223,23 +325,8 @@ public class Zone {
             }
         }
 
-        // Charger les blocs
-        List<String> blockStrings = section.getStringList("blocks");
-        for (String blockStr : blockStrings) {
-            try {
-                String[] parts = blockStr.split(",");
-                Location blockLoc = new Location(
-                        Bukkit.getWorld(worldName),
-                        Integer.parseInt(parts[0]),
-                        Integer.parseInt(parts[1]),
-                        Integer.parseInt(parts[2])
-                );
-                zone.zoneBlocks.add(blockLoc);
-            } catch (Exception e) {
-                // Ignorer les blocs malformés
-            }
-        }
-
+        // Les blocs seront calculés à la demande
+        zone.updateCenter();
         return zone;
     }
 
@@ -247,34 +334,13 @@ public class Zone {
     // MÉTHODES UTILITAIRES
     // ===============================
 
-    /**
-     * Obtient les limites de la zone (bounding box)
-     */
-    public BoundingBox getBoundingBox() {
-        if (zoneBlocks.isEmpty()) return null;
-
-        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE, minZ = Integer.MAX_VALUE;
-        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE, maxZ = Integer.MIN_VALUE;
-
-        for (Location block : zoneBlocks) {
-            minX = Math.min(minX, block.getBlockX());
-            minY = Math.min(minY, block.getBlockY());
-            minZ = Math.min(minZ, block.getBlockZ());
-            maxX = Math.max(maxX, block.getBlockX());
-            maxY = Math.max(maxY, block.getBlockY());
-            maxZ = Math.max(maxZ, block.getBlockZ());
-        }
-
-        return new BoundingBox(minX, minY, minZ, maxX, maxY, maxZ);
-    }
-
     @Override
     public String toString() {
         return "Zone{" +
                 "id='" + id + '\'' +
                 ", worldName='" + worldName + '\'' +
                 ", beaconCount=" + beaconLocations.size() +
-                ", blockCount=" + zoneBlocks.size() +
+                ", blockCount=" + getBlockCount() +
                 '}';
     }
 
@@ -292,7 +358,7 @@ public class Zone {
     }
 
     // ===============================
-    // CLASSE INTERNE
+    // CLASSE INTERNE - BOUNDING BOX
     // ===============================
 
     public static class BoundingBox {

@@ -17,7 +17,6 @@ public class PlayerShops extends JavaPlugin {
     private ShopManager shopManager;
     private CommerceManager commerceManager;
     private VisualManager visualManager;
-    private ShopBackupManager shopBackupManager;
     private ZoneManager zoneManager;
     private ZoneScanner zoneScanner;
     private ShopGUI shopGUI;
@@ -46,7 +45,6 @@ public class PlayerShops extends JavaPlugin {
         this.shopGUI = new ShopGUI(this);
         this.zoneManager = new ZoneManager(this);
         this.zoneScanner = new ZoneScanner(this, zoneManager);
-        this.shopBackupManager = new ShopBackupManager(this, zoneManager);
 
         // Enregistrement des commandes
         getCommand("shop").setExecutor(new ShopCommand(this));
@@ -109,10 +107,6 @@ public class PlayerShops extends JavaPlugin {
 
     public ZoneManager getZoneManager() {
         return zoneManager;
-    }
-
-    public ShopBackupManager getShopBackupManager() {
-        return shopBackupManager;
     }
 
     public ZoneScanner getZoneScanner() {

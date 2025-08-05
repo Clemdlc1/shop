@@ -2,9 +2,7 @@ package fr.shop.commands;
 
 import fr.shop.PlayerShops;
 import fr.shop.data.Zone;
-import fr.shop.managers.ShopBackupManager;
 import fr.shop.managers.ZoneManager;
-import fr.shop.managers.ZoneScanner;
 import org.bukkit.Bukkit;
 import org.bukkit.World;
 import org.bukkit.command.Command;
@@ -19,18 +17,16 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Commandes d'administration pour la gestion des zones et sauvegardes
+ * Commandes d'administration optimisées pour la gestion des zones et sauvegardes
  */
 public class ShopAdminCommand implements CommandExecutor, TabCompleter {
 
     private final PlayerShops plugin;
     private final ZoneManager zoneManager;
-    private final ShopBackupManager backupManager;
 
     public ShopAdminCommand(PlayerShops plugin) {
         this.plugin = plugin;
         this.zoneManager = plugin.getZoneManager();
-        this.backupManager = plugin.getShopBackupManager();
     }
 
     @Override
@@ -56,14 +52,6 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
                 handleZonesCommand(sender, args);
                 break;
 
-            case "backup":
-                handleBackupCommand(sender, args);
-                break;
-
-            case "restore":
-                handleRestoreCommand(sender, args);
-                break;
-
             case "validate":
                 handleValidateCommand(sender);
                 break;
@@ -74,6 +62,14 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
 
             case "stats":
                 handleStatsCommand(sender);
+                break;
+
+            case "optimize":
+                handleOptimizeCommand(sender);
+                break;
+
+            case "cache":
+                handleCacheCommand(sender, args);
                 break;
 
             case "help":
@@ -89,7 +85,7 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
     }
 
     // ===============================
-    // COMMANDE SCAN
+    // COMMANDE SCAN (améliorée)
     // ===============================
 
     private void handleScanCommand(CommandSender sender, String[] args) {
@@ -118,15 +114,34 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
+        // Afficher les stats avant le scan
+        ZoneManager.ZoneStats statsBefore = zoneManager.getStats();
+        sender.sendMessage("§7§lSHOP §8» §7Zones actuelles: §e" + statsBefore.getTotalZones());
+
         zoneManager.getScanner().scanWorld(world, player).thenAccept(result -> {
             if (result != null) {
+                ZoneManager.ZoneStats statsAfter = zoneManager.getStats();
                 plugin.getLogger().info("Scan terminé: " + result);
+
+                // Message de résumé avec comparaison avant/après
+                new org.bukkit.scheduler.BukkitRunnable() {
+                    @Override
+                    public void run() {
+                        sender.sendMessage("§6§l▬▬▬▬▬▬▬ RÉSULTATS DU SCAN ▬▬▬▬▬▬▬");
+                        sender.sendMessage("§7Beacons trouvés: §e" + result.getBeaconsFound());
+                        sender.sendMessage("§7Zones créées: §e" + result.getZonesCreated());
+                        sender.sendMessage("§7Total zones: §e" + statsAfter.getTotalZones() + " §7(§a+" +
+                                (statsAfter.getTotalZones() - statsBefore.getTotalZones()) + "§7)");
+                        sender.sendMessage("§7Durée: §e" + (result.getDuration() / 1000.0) + "s");
+                        sender.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+                    }
+                }.runTask(plugin);
             }
         });
     }
 
     // ===============================
-    // COMMANDE ZONES
+    // COMMANDE ZONES (améliorée)
     // ===============================
 
     private void handleZonesCommand(CommandSender sender, String[] args) {
@@ -171,14 +186,36 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
 
         sender.sendMessage("§6§l▬▬▬▬▬▬▬ ZONES " + (worldFilter != null ? worldFilter.toUpperCase() : "TOUTES") + " ▬▬▬▬▬▬▬");
 
+        // Grouper par taille pour un meilleur affichage
+        zones.sort((a, b) -> Integer.compare(b.getBeaconCount(), a.getBeaconCount()));
+
         for (Zone zone : zones) {
-            String backupStatus = backupManager.hasBackup(zone.getId()) ? "§a✓" : "§c✗";
-            sender.sendMessage("§e" + zone.getId() + " §7- §f" + zone.getBeaconCount() + " §7beacons, §f" +
-                    zone.getBlockCount() + " §7blocs §8[" + backupStatus + "§8]");
+            String efficiency = calculateEfficiency(zone);
+
+            sender.sendMessage("§e" + zone.getId() + " §7- §f" + zone.getBeaconCount() + " §7beacons, " +
+                    "§f" + zone.getBlockCount() + " §7blocs " + efficiency);
         }
 
         sender.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
         sender.sendMessage("§7Total: §e" + zones.size() + " §7zones");
+
+        // Afficher les statistiques d'optimisation
+        if (zones.size() > 0) {
+            int totalBeacons = zones.stream().mapToInt(Zone::getBeaconCount).sum();
+            int totalBlocks = zones.stream().mapToInt(Zone::getBlockCount).sum();
+            sender.sendMessage("§7Économie mémoire: §a" + (totalBlocks - totalBeacons) + " §7blocs non stockés");
+        }
+    }
+
+    private String calculateEfficiency(Zone zone) {
+        int beacons = zone.getBeaconCount();
+        int blocks = zone.getBlockCount();
+        if (beacons == 0) return "";
+
+        double ratio = (double) blocks / beacons;
+        if (ratio > 20) return "§a(compact)";
+        else if (ratio > 15) return "§e(normal)";
+        else return "§c(dispersé)";
     }
 
     private void handleZonesInfoCommand(CommandSender sender, String[] args) {
@@ -199,7 +236,7 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§7ID: §e" + zone.getId());
         sender.sendMessage("§7Monde: §e" + zone.getWorldName());
         sender.sendMessage("§7Beacons: §e" + zone.getBeaconCount());
-        sender.sendMessage("§7Blocs: §e" + zone.getBlockCount());
+        sender.sendMessage("§7Blocs: §e" + zone.getBlockCount() + " §7(calculés à la demande)");
 
         if (zone.getCenterLocation() != null) {
             sender.sendMessage("§7Centre: §e" +
@@ -212,15 +249,11 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
         if (bounds != null) {
             sender.sendMessage("§7Limites: §e(" + bounds.minX + "," + bounds.minY + "," + bounds.minZ +
                     ") §7à §e(" + bounds.maxX + "," + bounds.maxY + "," + bounds.maxZ + ")");
-        }
 
-        boolean hasBackup = backupManager.hasBackup(zoneId);
-        sender.sendMessage("§7Sauvegarde: " + (hasBackup ? "§a✓ Disponible" : "§c✗ Aucune"));
-
-        if (hasBackup) {
-            long timestamp = backupManager.getBackupTimestamp(zoneId);
-            long hoursAgo = (System.currentTimeMillis() - timestamp) / (1000 * 60 * 60);
-            sender.sendMessage("§7Dernière sauvegarde: §e" + hoursAgo + " §7heures");
+            // Afficher l'efficacité de la bounding box
+            int boundingVolume = (bounds.maxX - bounds.minX + 1) * (bounds.maxY - bounds.minY + 1) * (bounds.maxZ - bounds.minZ + 1);
+            double efficiency = (double) zone.getBlockCount() / boundingVolume * 100;
+            sender.sendMessage("§7Efficacité: §e" + String.format("%.1f", efficiency) + "% §7du volume total");
         }
 
         sender.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
@@ -247,74 +280,58 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
     }
 
     // ===============================
-    // COMMANDE BACKUP
+    // COMMANDES DE MAINTENANCE (nouvelles)
     // ===============================
 
-    private void handleBackupCommand(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage("§c§lSHOP §8» §cCette commande ne peut être utilisée que par un joueur!");
-            return;
-        }
+    private void handleOptimizeCommand(CommandSender sender) {
+        sender.sendMessage("§a§lSHOP §8» §aOptimisation des structures en cours...");
 
-        Player player = (Player) sender;
+        long startTime = System.currentTimeMillis();
+        zoneManager.optimize();
+        long duration = System.currentTimeMillis() - startTime;
 
+        ZoneManager.CacheStats cacheStats = zoneManager.getCacheStats();
+
+        sender.sendMessage("§a§lSHOP §8» §aOptimisation terminée en " + duration + "ms");
+        sender.sendMessage("§7§lSHOP §8» §7Cache: " + cacheStats.toString());
+    }
+
+    private void handleCacheCommand(CommandSender sender, String[] args) {
         if (args.length < 2) {
-            sender.sendMessage("§c§lSHOP §8» §cUtilisation: §e/shopadmin backup <zone/all>");
+            // Afficher les stats du cache
+            ZoneManager.CacheStats stats = zoneManager.getCacheStats();
+            sender.sendMessage("§6§l▬▬▬▬▬▬▬ CACHE STATS ▬▬▬▬▬▬▬");
+            sender.sendMessage("§7Taille actuelle: §e" + stats.getCurrentSize() + "§7/§e" + stats.getMaxSize());
+            sender.sendMessage("§7Utilisation: §e" + String.format("%.1f", stats.getUsagePercentage()) + "%");
+            sender.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
             return;
         }
 
-        String target = args[1];
+        String action = args[1].toLowerCase();
 
-        if (target.equalsIgnoreCase("all")) {
-            backupManager.backupAllZones(player).thenAccept(results -> {
-                long successful = results.stream().mapToLong(r -> r.isSuccess() ? 1 : 0).sum();
-                plugin.getLogger().info("Sauvegarde de toutes les zones terminée: " + successful + "/" + results.size() + " succès");
-            });
+        if ("clear".equals(action)) {
+            zoneManager.clearLocationCache();
+            sender.sendMessage("§a§lSHOP §8» §aCache vidé!");
         } else {
-            backupManager.backupZone(target, player).thenAccept(result -> {
-                plugin.getLogger().info("Sauvegarde de la zone " + target + ": " +
-                        (result.isSuccess() ? "succès" : "échec - " + result.getErrorMessage()));
-            });
+            sender.sendMessage("§c§lSHOP §8» §cUtilisation: §e/shopadmin cache [clear]");
         }
     }
 
     // ===============================
-    // COMMANDE RESTORE
-    // ===============================
-
-    private void handleRestoreCommand(CommandSender sender, String[] args) {
-        if (!(sender instanceof Player)) {
-            sender.sendMessage("§c§lSHOP §8» §cCette commande ne peut être utilisée que par un joueur!");
-            return;
-        }
-
-        Player player = (Player) sender;
-
-        if (args.length < 2) {
-            sender.sendMessage("§c§lSHOP §8» §cUtilisation: §e/shopadmin restore <zoneId>");
-            return;
-        }
-
-        String zoneId = args[1];
-
-        backupManager.restoreZone(zoneId, player).thenAccept(result -> {
-            plugin.getLogger().info("Restauration de la zone " + zoneId + ": " +
-                    (result.isSuccess() ? "succès" : "échec - " + result.getErrorMessage()));
-        });
-    }
-
-    // ===============================
-    // AUTRES COMMANDES
+    // AUTRES COMMANDES (améliorées)
     // ===============================
 
     private void handleValidateCommand(CommandSender sender) {
         sender.sendMessage("§a§lSHOP §8» §aValidation des zones en cours...");
 
+        long startTime = System.currentTimeMillis();
         ZoneManager.ValidationResult result = zoneManager.validateZones();
+        long duration = System.currentTimeMillis() - startTime;
 
         sender.sendMessage("§6§l▬▬▬▬▬▬▬ VALIDATION DES ZONES ▬▬▬▬▬▬▬");
         sender.sendMessage("§7Zones valides: §a" + result.getValidZones());
         sender.sendMessage("§7Zones invalides: §c" + result.getInvalidZones());
+        sender.sendMessage("§7Durée: §e" + duration + "ms");
 
         if (result.hasIssues()) {
             sender.sendMessage("§c§lProblèmes détectés:");
@@ -331,19 +348,31 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
     private void handleReloadCommand(CommandSender sender) {
         sender.sendMessage("§a§lSHOP §8» §aRechargement des zones...");
 
+        long startTime = System.currentTimeMillis();
         zoneManager.loadZones();
         plugin.getConfigManager().reloadConfig();
+        long duration = System.currentTimeMillis() - startTime;
 
-        sender.sendMessage("§a§lSHOP §8» §aRechargement terminé!");
+        sender.sendMessage("§a§lSHOP §8» §aRechargement terminé en " + duration + "ms!");
     }
 
     private void handleStatsCommand(CommandSender sender) {
         ZoneManager.ZoneStats stats = zoneManager.getStats();
+        ZoneManager.CacheStats cacheStats = zoneManager.getCacheStats();
 
         sender.sendMessage("§6§l▬▬▬▬▬▬▬ STATISTIQUES ZONES ▬▬▬▬▬▬▬");
         sender.sendMessage("§7Total zones: §e" + stats.getTotalZones());
         sender.sendMessage("§7Total beacons: §e" + stats.getTotalBeacons());
-        sender.sendMessage("§7Total blocs: §e" + stats.getTotalBlocks());
+        sender.sendMessage("§7Total blocs: §e" + stats.getTotalBlocks() + " §7(calculés)");
+
+        // Calculs d'optimisation
+        int savedBlocks = stats.getTotalBlocks() - stats.getTotalBeacons();
+        sender.sendMessage("§7Économie mémoire: §a" + savedBlocks + " §7blocs non stockés");
+
+        if (stats.getTotalBlocks() > 0) {
+            double savings = (double) savedBlocks / stats.getTotalBlocks() * 100;
+            sender.sendMessage("§7Réduction stockage: §a" + String.format("%.1f", savings) + "%");
+        }
 
         if (!stats.getWorldCounts().isEmpty()) {
             sender.sendMessage("§7Par monde:");
@@ -351,12 +380,7 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
                 sender.sendMessage("§8  - §e" + entry.getKey() + "§7: §f" + entry.getValue() + " §7zones");
             }
         }
-
-        int backedUp = (int) zoneManager.getAllZones().stream()
-                .mapToLong(z -> backupManager.hasBackup(z.getId()) ? 1 : 0)
-                .sum();
-        sender.sendMessage("§7Zones sauvegardées: §a" + backedUp + "§7/§e" + stats.getTotalZones());
-
+        sender.sendMessage("§7Cache: " + cacheStats.toString());
         sender.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
     }
 
@@ -371,6 +395,8 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
         sender.sendMessage("§e/shopadmin validate §7- Valider l'intégrité des zones");
         sender.sendMessage("§e/shopadmin reload §7- Recharger les configurations");
         sender.sendMessage("§e/shopadmin stats §7- Statistiques des zones");
+        sender.sendMessage("§e/shopadmin optimize §7- Optimiser les structures");
+        sender.sendMessage("§e/shopadmin cache [clear] §7- Gestion du cache");
         sender.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
     }
 
@@ -383,7 +409,7 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
-            completions.addAll(Arrays.asList("scan", "zones", "backup", "restore", "validate", "reload", "stats", "help"));
+            completions.addAll(Arrays.asList("scan", "zones", "backup", "restore", "validate", "reload", "stats", "optimize", "cache", "help"));
         } else if (args.length == 2) {
             String subCommand = args[0].toLowerCase();
 
@@ -391,25 +417,15 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
                 case "scan":
                     completions.addAll(Bukkit.getWorlds().stream()
                             .map(World::getName)
-                            .collect(Collectors.toList()));
+                            .toList());
                     break;
 
                 case "zones":
                     completions.addAll(Arrays.asList("list", "info", "delete"));
                     break;
 
-                case "backup":
-                    completions.add("all");
-                    completions.addAll(zoneManager.getAllZones().stream()
-                            .map(Zone::getId)
-                            .collect(Collectors.toList()));
-                    break;
-
-                case "restore":
-                    completions.addAll(zoneManager.getAllZones().stream()
-                            .map(Zone::getId)
-                            .filter(id -> backupManager.hasBackup(id))
-                            .collect(Collectors.toList()));
+                case "cache":
+                    completions.add("clear");
                     break;
             }
         } else if (args.length == 3) {
@@ -420,11 +436,11 @@ public class ShopAdminCommand implements CommandExecutor, TabCompleter {
                 if ("list".equals(action)) {
                     completions.addAll(Bukkit.getWorlds().stream()
                             .map(World::getName)
-                            .collect(Collectors.toList()));
+                            .toList());
                 } else if ("info".equals(action) || "delete".equals(action)) {
                     completions.addAll(zoneManager.getAllZones().stream()
                             .map(Zone::getId)
-                            .collect(Collectors.toList()));
+                            .toList());
                 }
             }
         }

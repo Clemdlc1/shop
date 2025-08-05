@@ -13,7 +13,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Gestionnaire des zones de shop basées sur les beacons
+ * Gestionnaire des zones de shop basées sur les beacons - Version optimisée
  */
 public class ZoneManager {
 
@@ -24,10 +24,17 @@ public class ZoneManager {
     private File zonesFile;
     private FileConfiguration zonesConfig;
 
+    // Cache pour optimiser les recherches fréquentes
+    private final Map<String, List<Zone>> zonesByWorld;
+    private final Map<Location, Zone> locationCache;
+    private static final int CACHE_SIZE_LIMIT = 10000;
+
     public ZoneManager(PlayerShops plugin) {
         this.plugin = plugin;
         this.zones = new ConcurrentHashMap<>();
         this.scanner = new ZoneScanner(plugin, this);
+        this.zonesByWorld = new ConcurrentHashMap<>();
+        this.locationCache = new ConcurrentHashMap<>();
 
         initializeZonesFile();
         loadZones();
@@ -58,14 +65,18 @@ public class ZoneManager {
     }
 
     // ===============================
-    // CHARGEMENT ET SAUVEGARDE
+    // CHARGEMENT ET SAUVEGARDE OPTIMISÉS
     // ===============================
 
     /**
-     * Charge toutes les zones depuis le fichier zones.yml
+     * Charge toutes les zones depuis le fichier zones.yml (optimisé)
      */
     public void loadZones() {
+        long startTime = System.currentTimeMillis();
+
         zones.clear();
+        zonesByWorld.clear();
+        locationCache.clear();
 
         ConfigurationSection zonesSection = zonesConfig.getConfigurationSection("zones");
         if (zonesSection == null) return;
@@ -78,6 +89,10 @@ public class ZoneManager {
                     Zone zone = Zone.loadFromConfig(zoneId, zoneSection);
                     if (zone != null) {
                         zones.put(zoneId, zone);
+
+                        // Indexer par monde pour optimiser les recherches
+                        zonesByWorld.computeIfAbsent(zone.getWorldName(), k -> new ArrayList<>()).add(zone);
+
                         loadedCount++;
                     }
                 } catch (Exception e) {
@@ -86,13 +101,16 @@ public class ZoneManager {
             }
         }
 
-        plugin.getLogger().info("Chargé " + loadedCount + " zones");
+        long duration = System.currentTimeMillis() - startTime;
+        plugin.getLogger().info("Chargé " + loadedCount + " zones en " + duration + "ms");
     }
 
     /**
-     * Sauvegarde toutes les zones dans le fichier zones.yml
+     * Sauvegarde toutes les zones (optimisé - seulement les beacons)
      */
     public void saveZones() {
+        long startTime = System.currentTimeMillis();
+
         ConfigurationSection zonesSection = zonesConfig.createSection("zones");
 
         for (Map.Entry<String, Zone> entry : zones.entrySet()) {
@@ -101,7 +119,9 @@ public class ZoneManager {
         }
 
         saveZonesConfig();
-        plugin.getLogger().info("Sauvegardé " + zones.size() + " zones");
+
+        long duration = System.currentTimeMillis() - startTime;
+        plugin.getLogger().info("Sauvegardé " + zones.size() + " zones en " + duration + "ms");
     }
 
     private void saveZonesConfig() {
@@ -113,50 +133,99 @@ public class ZoneManager {
     }
 
     // ===============================
-    // GESTION DES ZONES
+    // GESTION DES ZONES OPTIMISÉE
     // ===============================
 
     /**
-     * Ajoute une zone
+     * Ajoute une zone et met à jour les index
      */
     public void addZone(Zone zone) {
         zones.put(zone.getId(), zone);
+
+        // Mettre à jour l'index par monde
+        zonesByWorld.computeIfAbsent(zone.getWorldName(), k -> new ArrayList<>()).add(zone);
+
+        // Invalider le cache des locations pour cette zone
+        invalidateLocationCacheForZone(zone);
     }
 
     /**
-     * Supprime une zone
+     * Supprime une zone et nettoie les index
      */
     public void removeZone(String zoneId) {
-        zones.remove(zoneId);
+        Zone removedZone = zones.remove(zoneId);
+        if (removedZone != null) {
+            // Nettoyer l'index par monde
+            List<Zone> worldZones = zonesByWorld.get(removedZone.getWorldName());
+            if (worldZones != null) {
+                worldZones.remove(removedZone);
+                if (worldZones.isEmpty()) {
+                    zonesByWorld.remove(removedZone.getWorldName());
+                }
+            }
+
+            // Invalider le cache
+            invalidateLocationCacheForZone(removedZone);
+        }
     }
 
     /**
      * Nettoie toutes les zones d'un monde
      */
     public void clearZonesForWorld(String worldName) {
+        // Supprimer du cache principal
         zones.entrySet().removeIf(entry -> entry.getValue().getWorldName().equals(worldName));
+
+        // Nettoyer l'index par monde
+        zonesByWorld.remove(worldName);
+
+        // Nettoyer le cache de locations
+        locationCache.entrySet().removeIf(entry ->
+                entry.getKey().getWorld().getName().equals(worldName));
     }
 
     /**
-     * Trouve la zone contenant une location
+     * Trouve la zone contenant une location (optimisé avec cache et index)
      */
     public Zone getZoneAtLocation(Location location) {
         if (location == null) return null;
 
-        for (Zone zone : zones.values()) {
+        // Vérifier d'abord le cache
+        Zone cachedZone = locationCache.get(location);
+        if (cachedZone != null) {
+            return cachedZone;
+        }
+
+        // Rechercher seulement dans les zones du bon monde (optimisation majeure)
+        List<Zone> worldZones = zonesByWorld.get(location.getWorld().getName());
+        if (worldZones == null || worldZones.isEmpty()) {
+            return null;
+        }
+
+        for (Zone zone : worldZones) {
             if (zone.containsLocation(location)) {
+                // Ajouter au cache (avec limite de taille)
+                if (locationCache.size() < CACHE_SIZE_LIMIT) {
+                    locationCache.put(location, zone);
+                }
                 return zone;
             }
         }
+
         return null;
     }
 
     /**
-     * Trouve toutes les zones d'un monde
+     * Trouve toutes les zones d'un monde (optimisé avec index)
      */
     public List<Zone> getZonesInWorld(String worldName) {
-        return zones.values().stream()
-                .filter(zone -> zone.getWorldName().equals(worldName))
+        List<Zone> worldZones = zonesByWorld.get(worldName);
+        if (worldZones == null) {
+            return new ArrayList<>();
+        }
+
+        // Retourner une copie triée
+        return worldZones.stream()
                 .sorted(Comparator.comparing(Zone::getId))
                 .toList();
     }
@@ -176,10 +245,36 @@ public class ZoneManager {
     }
 
     /**
-     * Vérifie si une location est dans une zone
+     * Vérifie si une location est dans une zone (optimisé)
      */
     public boolean isInAnyZone(Location location) {
         return getZoneAtLocation(location) != null;
+    }
+
+    // ===============================
+    // GESTION DU CACHE
+    // ===============================
+
+    /**
+     * Invalide le cache de locations pour une zone spécifique
+     */
+    private void invalidateLocationCacheForZone(Zone zone) {
+        locationCache.entrySet().removeIf(entry -> entry.getValue().equals(zone));
+    }
+
+    /**
+     * Nettoie complètement le cache de locations
+     */
+    public void clearLocationCache() {
+        locationCache.clear();
+        plugin.getLogger().info("Cache de locations vidé");
+    }
+
+    /**
+     * Obtient des statistiques sur le cache
+     */
+    public CacheStats getCacheStats() {
+        return new CacheStats(locationCache.size(), CACHE_SIZE_LIMIT);
     }
 
     // ===============================
@@ -194,42 +289,47 @@ public class ZoneManager {
     }
 
     // ===============================
-    // STATISTIQUES ET INFORMATIONS
+    // STATISTIQUES ET INFORMATIONS OPTIMISÉES
     // ===============================
 
     /**
-     * Obtient des statistiques sur les zones
+     * Obtient des statistiques sur les zones (optimisé)
      */
     public ZoneStats getStats() {
         int totalZones = zones.size();
         int totalBeacons = 0;
-        int totalBlocks = 0;
+        long totalBlocks = 0; // long car peut être très grand
         Map<String, Integer> worldCounts = new HashMap<>();
 
         for (Zone zone : zones.values()) {
             totalBeacons += zone.getBeaconCount();
-            totalBlocks += zone.getBlockCount();
+            totalBlocks += zone.getBlockCount(); // Calculé, pas stocké
             worldCounts.merge(zone.getWorldName(), 1, Integer::sum);
         }
 
-        return new ZoneStats(totalZones, totalBeacons, totalBlocks, worldCounts);
+        return new ZoneStats(totalZones, totalBeacons, (int) Math.min(totalBlocks, Integer.MAX_VALUE), worldCounts);
     }
 
     /**
-     * Trouve les zones proches d'une location
+     * Trouve les zones proches d'une location (optimisé)
      */
     public List<Zone> getNearbyZones(Location location, double radius) {
         List<Zone> nearbyZones = new ArrayList<>();
 
-        for (Zone zone : zones.values()) {
-            if (!zone.getWorldName().equals(location.getWorld().getName())) continue;
+        // Optimisation : chercher seulement dans le bon monde
+        List<Zone> worldZones = zonesByWorld.get(location.getWorld().getName());
+        if (worldZones == null) {
+            return nearbyZones;
+        }
 
+        for (Zone zone : worldZones) {
             Location center = zone.getCenterLocation();
             if (center != null && center.distance(location) <= radius) {
                 nearbyZones.add(zone);
             }
         }
 
+        // Trier par distance
         nearbyZones.sort(Comparator.comparing(zone -> {
             Location center = zone.getCenterLocation();
             return center != null ? center.distance(location) : Double.MAX_VALUE;
@@ -239,7 +339,7 @@ public class ZoneManager {
     }
 
     /**
-     * Valide l'intégrité des zones (vérifie que les beacons existent toujours)
+     * Valide l'intégrité des zones (optimisé)
      */
     public ValidationResult validateZones() {
         List<String> issues = new ArrayList<>();
@@ -272,6 +372,27 @@ public class ZoneManager {
         }
 
         return new ValidationResult(validZones, invalidZones, issues);
+    }
+
+    // ===============================
+    // MÉTHODES DE MAINTENANCE
+    // ===============================
+
+    /**
+     * Optimise les structures de données (à appeler périodiquement)
+     */
+    public void optimize() {
+        // Nettoyer le cache si il devient trop grand
+        if (locationCache.size() > CACHE_SIZE_LIMIT * 0.8) {
+            clearLocationCache();
+        }
+
+        // Recompacter les index
+        for (List<Zone> worldZones : zonesByWorld.values()) {
+            ((ArrayList<Zone>) worldZones).trimToSize();
+        }
+
+        plugin.getLogger().info("Optimisation des zones terminée");
     }
 
     // ===============================
@@ -330,6 +451,26 @@ public class ZoneManager {
                     ", invalid=" + invalidZones +
                     ", issues=" + issues.size() +
                     '}';
+        }
+    }
+
+    public static class CacheStats {
+        private final int currentSize;
+        private final int maxSize;
+
+        public CacheStats(int currentSize, int maxSize) {
+            this.currentSize = currentSize;
+            this.maxSize = maxSize;
+        }
+
+        public int getCurrentSize() { return currentSize; }
+        public int getMaxSize() { return maxSize; }
+        public double getUsagePercentage() { return (double) currentSize / maxSize * 100; }
+
+        @Override
+        public String toString() {
+            return String.format("CacheStats{%d/%d (%.1f%%)}",
+                    currentSize, maxSize, getUsagePercentage());
         }
     }
 }
