@@ -2,6 +2,7 @@ package fr.shop.managers;
 
 import fr.shop.PlayerShops;
 import fr.shop.data.Shop;
+import fr.shop.data.Zone;
 import fr.shop.hooks.PrisonTycoonHook;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -14,21 +15,23 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 /**
- * Gestionnaire principal des shops
+ * Gestionnaire principal des shops basés sur les zones
  */
 public class ShopManager {
 
     private final PlayerShops plugin;
     private final PrisonTycoonHook hook;
     private final ConfigManager configManager;
+    private final ZoneManager zoneManager;
     private final Map<String, Shop> shops;
     private final Map<UUID, Long> lastMessageTime;
     private final Set<UUID> playersNearShops;
 
-    public ShopManager(PlayerShops plugin) {
+    public ShopManager(PlayerShops plugin, ZoneManager zoneManager) {
         this.plugin = plugin;
         this.hook = plugin.getPrisonTycoonHook();
         this.configManager = plugin.getConfigManager();
+        this.zoneManager = zoneManager;
         this.shops = new HashMap<>();
         this.lastMessageTime = new HashMap<>();
         this.playersNearShops = new HashSet<>();
@@ -39,8 +42,16 @@ public class ShopManager {
     }
 
     private void loadShops() {
-        shops.putAll(configManager.loadShopsFromConfig());
-        plugin.getLogger().info("Chargé " + shops.size() + " shop(s)");
+        // Charger les shops existants
+        Map<String, Shop> loadedShops = configManager.loadShopsFromConfig();
+        shops.putAll(loadedShops);
+
+        // Si la création automatique est activée, synchroniser avec les zones
+        if (configManager.isAutoCreateShopsEnabled()) {
+            configManager.synchronizeShopsWithZones(shops, zoneManager);
+        }
+
+        plugin.getLogger().info("Chargé " + shops.size() + " shop(s) total");
     }
 
     public void saveAll() {
@@ -144,7 +155,7 @@ public class ShopManager {
 
             for (Shop shop : shops.values()) {
                 if (shop.isRented() && shop.getCustomMessage() != null &&
-                        shop.isNearShop(player.getLocation(), 5.0)) {
+                        shop.isNearShop(player.getLocation(), 5.0, zoneManager)) {
 
                     nearShop = true;
                     currentlyNearShops.add(player.getUniqueId());
@@ -174,7 +185,7 @@ public class ShopManager {
     }
 
     // ===============================
-    // MÉTHODES PRINCIPALES
+    // MÉTHODES PRINCIPALES (ADAPTÉES ZONES)
     // ===============================
 
     public boolean claimShop(Player player, String shopId) {
@@ -548,14 +559,14 @@ public class ShopManager {
         return true;
     }
 
-    public boolean placeBeacon(Player player, Location location) {
+    public boolean placeBarrel(Player player, Location location) {
         Shop shop = getPlayerShop(player.getUniqueId());
         if (shop == null) {
             player.sendMessage("§c§lSHOP §8» §cVous ne possédez aucun shop!");
             return false;
         }
 
-        if (!shop.containsLocation(location)) {
+        if (!shop.containsLocation(location, zoneManager)) {
             player.sendMessage("§c§lSHOP §8» §cVous ne pouvez placer des beacons que dans votre shop!");
             return false;
         }
@@ -573,7 +584,7 @@ public class ShopManager {
     }
 
     // ===============================
-    // GETTERS ET UTILITAIRES
+    // GETTERS ET UTILITAIRES (ADAPTÉS ZONES)
     // ===============================
 
     public Shop getShop(String shopId) {
@@ -589,7 +600,7 @@ public class ShopManager {
 
     public Shop getShopAtLocation(Location location) {
         return shops.values().stream()
-                .filter(shop -> shop.containsLocation(location))
+                .filter(shop -> shop.containsLocation(location, zoneManager))
                 .findFirst()
                 .orElse(null);
     }
@@ -659,5 +670,15 @@ public class ShopManager {
 
     public Map<String, Shop> getShops() {
         return new HashMap<>(shops);
+    }
+
+    /**
+     * Resynchronise les shops avec les zones disponibles
+     */
+    public void resynchronizeWithZones() {
+        if (configManager.isAutoCreateShopsEnabled()) {
+            configManager.synchronizeShopsWithZones(shops, zoneManager);
+            saveAll();
+        }
     }
 }

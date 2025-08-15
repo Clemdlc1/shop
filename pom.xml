@@ -5,11 +5,11 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>fr.shop</groupId>
-    <artifactId>shop</artifactId>
+    <artifactId>PlayerShops</artifactId>
     <version>0.1</version>
     <packaging>jar</packaging>
 
-    <name>shop</name>
+    <name>PlayerShops</name>
 
     <properties>
         <java.version>21</java.version>

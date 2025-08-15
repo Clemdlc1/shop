@@ -1,153 +1,50 @@
-# Configuration PlayerShops
-# Plugin de shops joueur avec système de location et commerce
+# Configuration PlayerShops avec système de zones
+# Plugin de shops joueur basé sur la détection automatique de zones de beacons
 
 # Paramètres généraux
 settings:
+  # Configuration du monde
+  world:
+    market_world: "Market"           # Nom du monde contenant les shops
+    auto_create_shops: true          # Créer automatiquement des shops depuis les zones détectées
+    auto_scan_on_startup: true       # Scanner le monde au démarrage du serveur
+
   # Configuration de la location
   rent:
-    price: 1000                    # Prix de base en beacons
-    duration: 259200000           # Durée en millisecondes (3 jours)
-    grace_duration: 86400000      # Période de grâce en millisecondes (1 jour)
+    price: 1000                      # Prix de base en beacons
+    duration: 259200000              # Durée en millisecondes (3 jours)
+    grace_duration: 86400000         # Période de grâce en millisecondes (1 jour)
 
   # Configuration de la personnalisation
   customization:
     custom-message:
-      price: 100                  # Prix pour un message personnalisé
-      cooldown: 5000              # Cooldown entre messages en millisecondes (5 secondes)
+      price: 100                     # Prix pour un message personnalisé
+      cooldown: 5000                 # Cooldown entre messages en millisecondes (5 secondes)
     floating-text:
-      price: 50                   # Prix par texte flottant
-      max-per-shop: 3             # Maximum de textes flottants par shop
+      price: 50                      # Prix par texte flottant
+      max-per-shop: 3                # Maximum de textes flottants par shop
     npc:
-      price: 500                  # Prix pour un PNJ
+      price: 500                     # Prix pour un PNJ
 
   # Configuration des annonces
   advertisement:
     boost:
-      price: 200                  # Prix pour booster une annonce
-      duration: 3600000           # Durée du boost en millisecondes (1 heure)
+      price: 200                     # Prix pour booster une annonce
+      duration: 3600000              # Durée du boost en millisecondes (1 heure)
 
-# Configuration des shops
-# Format: shopId -> propriétés
-shops:
-  shop1:
-    world: world
-    location:
-      x: 100
-      y: 64
-      z: 100
-      yaw: 0
-      pitch: 0
-    corner1:
-      x: 95
-      y: 64
-      z: 95
-    corner2:
-      x: 105
-      y: 74
-      z: 105
+  # Configuration des zones
+  zones:
+    scan_radius: 300                 # Rayon de scan pour les beacons (blocs)
+    min_beacons: 1                   # Minimum de beacons pour créer une zone
+    max_beacons: 100                  # Maximum de beacons par zone
+    zone_height_below: 1             # Blocs en dessous des beacons inclus dans la zone
+    zone_height_above: 20            # Blocs au-dessus des beacons inclus dans la zone
 
-  shop2:
-    world: world
-    location:
-      x: 120
-      y: 64
-      z: 100
-      yaw: 0
-      pitch: 0
-    corner1:
-      x: 115
-      y: 64
-      z: 95
-    corner2:
-      x: 125
-      y: 74
-      z: 105
-
-  shop3:
-    world: world
-    location:
-      x: 140
-      y: 64
-      z: 100
-      yaw: 0
-      pitch: 0
-    corner1:
-      x: 135
-      y: 64
-      z: 95
-    corner2:
-      x: 145
-      y: 74
-      z: 105
-
-  shop4:
-    world: world
-    location:
-      x: 160
-      y: 64
-      z: 100
-      yaw: 0
-      pitch: 0
-    corner1:
-      x: 155
-      y: 64
-      z: 95
-    corner2:
-      x: 165
-      y: 74
-      z: 105
-
-  shop5:
-    world: world
-    location:
-      x: 180
-      y: 64
-      z: 100
-      yaw: 0
-      pitch: 0
-    corner1:
-      x: 175
-      y: 64
-      z: 95
-    corner2:
-      x: 185
-      y: 74
-      z: 105
-
-  # Shops de plus grande taille
-  bigshop1:
-    world: world
-    location:
-      x: 100
-      y: 64
-      z: 130
-      yaw: 0
-      pitch: 0
-    corner1:
-      x: 90
-      y: 64
-      z: 120
-    corner2:
-      x: 110
-      y: 80
-      z: 140
-
-  bigshop2:
-    world: world
-    location:
-      x: 130
-      y: 64
-      z: 130
-      yaw: 0
-      pitch: 0
-    corner1:
-      x: 120
-      y: 64
-      z: 120
-    corner2:
-      x: 140
-      y: 80
-      z: 140
+  # Configuration des sauvegardes
+  backup:
+    auto_backup_on_expire: true      # Sauvegarder automatiquement quand un shop expire
+    compression_enabled: true        # Activer la compression des sauvegardes
+    market_backup_enabled: true      # Activer les sauvegardes spéciales pour les market zones
 
 # Messages du plugin
 messages:
@@ -158,6 +55,7 @@ messages:
     no-permission: "§cVous n'avez pas la permission!"
     player-only: "§cCette commande ne peut être utilisée que par un joueur!"
     shop-not-found: "§cShop introuvable!"
+    zone-not-found: "§cZone introuvable!"
     already-rented: "§cCe shop est déjà loué!"
     no-shop: "§cVous ne possédez aucun shop!"
     not-enough-beacons: "§cVous n'avez pas assez de beacons!"
@@ -176,6 +74,9 @@ messages:
     shop-unavailable: "§cCe shop n'est pas disponible!"
     max-floating-texts: "§cVous avez atteint la limite de textes flottants! (3 max)"
     grace-period: "§cCe shop est en période de grâce!"
+    zone-unavailable: "§cCette zone n'est pas disponible!"
+    no-zones-found: "§cAucune zone trouvée dans ce monde!"
+    scan-in-progress: "§cUn scan est déjà en cours!"
 
   # Messages de succès
   success:
@@ -197,6 +98,9 @@ messages:
     advertisement-boosted: "§aAnnonce boostée pour 1 heure!"
     purchase-success: "§aAchat effectué! ({price} beacons)"
     sell-success: "§aVente effectuée! (+{price} beacons)"
+    zones-scanned: "§aScan terminé! {zones} zones créées depuis {beacons} beacons."
+    backup-created: "§aSauvegarde créée pour la zone {zone}!"
+    backup-restored: "§aZone {zone} restaurée depuis la sauvegarde!"
 
   # Messages d'information
   info:
@@ -211,3 +115,23 @@ messages:
     floating-text-list: "§6Vos textes flottants:"
     chest-shop-info: "§6Informations sur votre chest shop ({mode}):"
     modify-hint: "§7Clic gauche pour modifier le prix/mode"
+    scan-progress: "§7Scan en cours... {progress}% terminé"
+    teleport-available: "§aTéléportation directe disponible pour ce shop!"
+    zone-info: "§7Cette zone contient {beacons} beacons et {blocks} blocs."
+
+# Configuration des téléportations
+teleportation:
+  enable_zone_teleports: true        # Activer les téléportations directes aux zones
+  teleport_safety_check: true       # Vérifier la sécurité des téléportations
+  teleport_delay: 0                  # Délai avant téléportation (secondes)
+
+# Configuration des permissions étendues
+permissions:
+  zone-management:
+    scan-worlds: "playershops.admin.scan"
+    backup-zones: "playershops.admin.backup"
+    restore-zones: "playershops.admin.restore"
+  advanced-features:
+    unlimited-floating-texts: "playershops.vip.unlimited"
+    free-customization: "playershops.vip.free"
+    priority-teleport: "playershops.vip.teleport"

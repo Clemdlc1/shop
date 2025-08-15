@@ -2,8 +2,6 @@ package fr.shop.managers;
 
 import fr.shop.PlayerShops;
 import fr.shop.data.Shop;
-import org.bukkit.Bukkit;
-import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.configuration.file.YamlConfiguration;
@@ -14,7 +12,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Gestionnaire de configuration pour les shops
+ * Gestionnaire de configuration pour les shops basés sur les zones
  */
 public class ConfigManager {
 
@@ -29,6 +27,7 @@ public class ConfigManager {
     private static final long DEFAULT_NPC_PRICE = 500;
     private static final long DEFAULT_BOOST_PRICE = 200;
     private static final long DEFAULT_BOOST_DURATION = 60 * 60 * 1000L; // 1 heure
+
     private final PlayerShops plugin;
     private FileConfiguration config;
     private FileConfiguration shopsConfig;
@@ -56,78 +55,48 @@ public class ConfigManager {
         }
         this.shopsConfig = YamlConfiguration.loadConfiguration(shopsFile);
 
-        // Créer les shops par défaut si nécessaire
-        createDefaultShops();
-    }
-
-    private void createDefaultShops() {
-        if (!config.contains("shops")) {
-            createDefaultConfig();
-        }
+        // Créer la configuration par défaut si nécessaire
+        createDefaultConfig();
     }
 
     private void createDefaultConfig() {
-        // Paramètres de location
-        config.set("settings.rent.price", DEFAULT_RENT_PRICE);
-        config.set("settings.rent.duration", DEFAULT_RENT_DURATION);
-        config.set("settings.rent.grace_duration", DEFAULT_GRACE_DURATION);
+        if (!config.contains("settings")) {
+            // Paramètres de location
+            config.set("settings.rent.price", DEFAULT_RENT_PRICE);
+            config.set("settings.rent.duration", DEFAULT_RENT_DURATION);
+            config.set("settings.rent.grace_duration", DEFAULT_GRACE_DURATION);
 
-        // Paramètres de personnalisation
-        config.set("settings.customization.custom-message.price", DEFAULT_CUSTOM_MESSAGE_PRICE);
-        config.set("settings.customization.custom-message.cooldown", DEFAULT_MESSAGE_COOLDOWN);
-        config.set("settings.customization.floating-text.price", DEFAULT_FLOATING_TEXT_PRICE);
-        config.set("settings.customization.floating-text.max-per-shop", DEFAULT_MAX_FLOATING_TEXTS);
-        config.set("settings.customization.npc.price", DEFAULT_NPC_PRICE);
+            // Paramètres de personnalisation
+            config.set("settings.customization.custom-message.price", DEFAULT_CUSTOM_MESSAGE_PRICE);
+            config.set("settings.customization.custom-message.cooldown", DEFAULT_MESSAGE_COOLDOWN);
+            config.set("settings.customization.floating-text.price", DEFAULT_FLOATING_TEXT_PRICE);
+            config.set("settings.customization.floating-text.max-per-shop", DEFAULT_MAX_FLOATING_TEXTS);
+            config.set("settings.customization.npc.price", DEFAULT_NPC_PRICE);
 
-        // Paramètres des annonces
-        config.set("settings.advertisement.boost.price", DEFAULT_BOOST_PRICE);
-        config.set("settings.advertisement.boost.duration", DEFAULT_BOOST_DURATION);
+            // Paramètres des annonces
+            config.set("settings.advertisement.boost.price", DEFAULT_BOOST_PRICE);
+            config.set("settings.advertisement.boost.duration", DEFAULT_BOOST_DURATION);
 
-        // Shops d'exemple
-        ConfigurationSection shopsSection = config.createSection("shops");
+            // Configuration du monde Market
+            config.set("settings.world.market_world", "Market");
+            config.set("settings.world.auto_create_shops", true);
 
-        // Shop 1
-        ConfigurationSection shop1 = shopsSection.createSection("shop1");
-        shop1.set("world", "world");
-        shop1.set("location.x", 100);
-        shop1.set("location.y", 64);
-        shop1.set("location.z", 100);
-        shop1.set("location.yaw", 0);
-        shop1.set("location.pitch", 0);
-        shop1.set("corner1.x", 95);
-        shop1.set("corner1.y", 64);
-        shop1.set("corner1.z", 95);
-        shop1.set("corner2.x", 105);
-        shop1.set("corner2.y", 74);
-        shop1.set("corner2.z", 105);
-
-        // Shop 2
-        ConfigurationSection shop2 = shopsSection.createSection("shop2");
-        shop2.set("world", "world");
-        shop2.set("location.x", 120);
-        shop2.set("location.y", 64);
-        shop2.set("location.z", 100);
-        shop2.set("location.yaw", 0);
-        shop2.set("location.pitch", 0);
-        shop2.set("corner1.x", 115);
-        shop2.set("corner1.y", 64);
-        shop2.set("corner1.z", 95);
-        shop2.set("corner2.x", 125);
-        shop2.set("corner2.y", 74);
-        shop2.set("corner2.z", 105);
-
-        plugin.saveConfig();
+            plugin.saveConfig();
+        }
     }
 
+    /**
+     * Charge les shops depuis shops.yml (maintenant basés sur les zones)
+     */
     public Map<String, Shop> loadShopsFromConfig() {
         Map<String, Shop> shops = new HashMap<>();
 
-        ConfigurationSection shopsSection = config.getConfigurationSection("shops");
+        ConfigurationSection shopsSection = shopsConfig.getConfigurationSection("shops");
         if (shopsSection != null) {
             for (String shopId : shopsSection.getKeys(false)) {
                 ConfigurationSection shopSection = shopsSection.getConfigurationSection(shopId);
                 if (shopSection != null) {
-                    Shop shop = createShopFromConfig(shopId, shopSection);
+                    Shop shop = Shop.loadFromConfig(shopId, shopSection);
                     if (shop != null) {
                         shops.put(shopId, shop);
                     }
@@ -135,91 +104,61 @@ public class ConfigManager {
             }
         }
 
-        // Charger les données des shops depuis shops.yml
-        ConfigurationSection shopsDataSection = shopsConfig.getConfigurationSection("shops");
-        if (shopsDataSection != null) {
-            for (String shopId : shopsDataSection.getKeys(false)) {
-                if (shops.containsKey(shopId)) {
-                    ConfigurationSection shopDataSection = shopsDataSection.getConfigurationSection(shopId);
-                    Shop existingShop = shops.get(shopId);
-                    loadShopData(existingShop, shopDataSection);
-                }
-            }
+        plugin.getLogger().info("Chargé " + shops.size() + " shop(s) depuis la configuration");
+        return shops;
+    }
+
+    /**
+     * Crée automatiquement des shops basés sur les zones détectées
+     */
+    public Map<String, Shop> createShopsFromZones(ZoneManager zoneManager) {
+        Map<String, Shop> shops = new HashMap<>();
+
+        String marketWorld = getMarketWorldName();
+
+        // Obtenir toutes les zones du monde Market
+        var marketZones = zoneManager.getZonesInWorld(marketWorld);
+
+        plugin.getLogger().info("Création automatique de " + marketZones.size() + " shops depuis les zones du monde " + marketWorld);
+
+        for (var zone : marketZones) {
+            String shopId = zone.getId().replace("zone_" + marketWorld + "_", "shop_");
+            Shop shop = new Shop(shopId, zone.getId());
+            shops.put(shopId, shop);
+
+            plugin.getLogger().info("Shop créé: " + shopId + " -> Zone: " + zone.getId());
         }
 
         return shops;
     }
 
-    private Shop createShopFromConfig(String shopId, ConfigurationSection section) {
-        try {
-            Shop shop = new Shop(shopId);
+    /**
+     * Synchronise les shops avec les zones (crée les shops manquants)
+     */
+    public void synchronizeShopsWithZones(Map<String, Shop> currentShops, ZoneManager zoneManager) {
+        String marketWorld = getMarketWorldName();
+        var marketZones = zoneManager.getZonesInWorld(marketWorld);
 
-            String worldName = section.getString("world");
-            if (worldName == null || Bukkit.getWorld(worldName) == null) {
-                plugin.getLogger().warning("Monde invalide pour le shop " + shopId + ": " + worldName);
-                return null;
+        int newShops = 0;
+
+        for (var zone : marketZones) {
+            // Chercher un shop existant pour cette zone
+            boolean shopExists = currentShops.values().stream()
+                    .anyMatch(shop -> zone.getId().equals(shop.getZoneId()));
+
+            if (!shopExists) {
+                // Créer un nouveau shop pour cette zone
+                String shopId = zone.getId().replace("zone_" + marketWorld + "_", "shop_");
+                Shop newShop = new Shop(shopId, zone.getId());
+                currentShops.put(shopId, newShop);
+                newShops++;
+
+                plugin.getLogger().info("Nouveau shop créé: " + shopId + " -> Zone: " + zone.getId());
             }
-
-            // Location principale
-            Location location = new Location(
-                    Bukkit.getWorld(worldName),
-                    section.getDouble("location.x"),
-                    section.getDouble("location.y"),
-                    section.getDouble("location.z"),
-                    (float) section.getDouble("location.yaw", 0),
-                    (float) section.getDouble("location.pitch", 0)
-            );
-            shop.setLocation(location);
-
-            // Coins du shop
-            Location corner1 = new Location(
-                    Bukkit.getWorld(worldName),
-                    section.getDouble("corner1.x"),
-                    section.getDouble("corner1.y"),
-                    section.getDouble("corner1.z")
-            );
-            shop.setCorner1(corner1);
-
-            Location corner2 = new Location(
-                    Bukkit.getWorld(worldName),
-                    section.getDouble("corner2.x"),
-                    section.getDouble("corner2.y"),
-                    section.getDouble("corner2.z")
-            );
-            shop.setCorner2(corner2);
-
-            return shop;
-        } catch (Exception e) {
-            plugin.getLogger().severe("Erreur lors du chargement du shop " + shopId + ": " + e.getMessage());
-            return null;
         }
-    }
 
-    private void loadShopData(Shop shop, ConfigurationSection section) {
-        if (section != null) {
-            Shop loadedData = Shop.loadFromConfig(shop.getId(), section);
-
-            // Copier les données chargées
-            shop.setOwnerId(loadedData.getOwnerId());
-            shop.setOwnerName(loadedData.getOwnerName());
-            shop.setRented(loadedData.isRented());
-            shop.setRentExpiry(loadedData.getRentExpiry());
-            shop.setInGracePeriod(loadedData.isInGracePeriod());
-            shop.setGraceExpiry(loadedData.getGraceExpiry());
-            shop.getMembers().clear();
-            shop.getMembers().addAll(loadedData.getMembers());
-            shop.setCustomMessage(loadedData.getCustomMessage());
-            shop.getFloatingTexts().clear();
-            shop.getFloatingTexts().addAll(loadedData.getFloatingTexts());
-            shop.setHasNPC(loadedData.hasNPC());
-            shop.setNpcName(loadedData.getNpcName());
-            shop.setNpcLocation(loadedData.getNpcLocation());
-            shop.setAdvertisement(loadedData.getAdvertisement());
-            shop.setAdvertisementBoostExpiry(loadedData.getAdvertisementBoostExpiry());
-            shop.getChestShops().clear();
-            shop.getChestShops().addAll(loadedData.getChestShops());
-            shop.setBeaconLocation(loadedData.getBeaconLocation());
-            shop.setHasBeacon(loadedData.hasBeacon());
+        if (newShops > 0) {
+            plugin.getLogger().info("Synchronisation terminée: " + newShops + " nouveaux shops créés");
         }
     }
 
@@ -280,6 +219,18 @@ public class ConfigManager {
 
     public long getBoostDuration() {
         return config.getLong("settings.advertisement.boost.duration", DEFAULT_BOOST_DURATION);
+    }
+
+    // ===============================
+    // GETTERS POUR LES PARAMÈTRES ZONES
+    // ===============================
+
+    public String getMarketWorldName() {
+        return config.getString("settings.world.market_world", "Market");
+    }
+
+    public boolean isAutoCreateShopsEnabled() {
+        return config.getBoolean("settings.world.auto_create_shops", true);
     }
 
     // ===============================

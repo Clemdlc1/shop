@@ -30,12 +30,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Gestionnaire du système de commerce avec coffres et panneaux
+ * Gestionnaire du système de commerce avec coffres et panneaux (adapté aux zones)
  */
 public class CommerceManager {
 
     private final PlayerShops plugin;
     private final PrisonTycoonHook hook;
+    private final ZoneManager zoneManager;
     private final Map<Location, ChestShop> chestShops;
     private final Map<UUID, PendingShopCreation> pendingCreations;
     private final Map<UUID, PendingPriceEdit> pendingPriceEdits;
@@ -50,6 +51,7 @@ public class CommerceManager {
     public CommerceManager(PlayerShops plugin) {
         this.plugin = plugin;
         this.hook = plugin.getPrisonTycoonHook();
+        this.zoneManager = plugin.getZoneManager();
         this.chestShops = new ConcurrentHashMap<>();
         this.pendingCreations = new ConcurrentHashMap<>();
         this.pendingPriceEdits = new ConcurrentHashMap<>();
@@ -94,7 +96,7 @@ public class CommerceManager {
     }
 
     // ===============================
-    // CRÉATION DE CHEST SHOP
+    // CRÉATION DE CHEST SHOP (ADAPTÉE ZONES)
     // ===============================
 
     private void loadChestShopFromSign(Location chestLocation) {
@@ -119,7 +121,7 @@ public class CommerceManager {
     }
 
     /**
-     * Démarre la création d'un chest shop directement sur le coffre cliqué
+     * Démarre la création d'un chest shop directement sur le coffre cliqué (adapté aux zones)
      */
     public void startChestShopCreation(Player player, ItemStack item, Location chestLocation) {
         if (item == null || item.getType() == Material.AIR) {
@@ -133,7 +135,8 @@ public class CommerceManager {
             return;
         }
 
-        if (!shop.containsLocation(chestLocation)) {
+        // Utiliser la nouvelle méthode avec ZoneManager
+        if (!shop.containsLocation(chestLocation, zoneManager)) {
             player.sendMessage("§c§lSHOP §8» §cCe coffre doit être dans votre shop!");
             return;
         }
@@ -378,7 +381,7 @@ public class CommerceManager {
     }
 
     // ===============================
-    // ACHAT/VENTE ET INFORMATIONS
+    // ACHAT/VENTE ET INFORMATIONS (ADAPTÉES ZONES)
     // ===============================
 
     private void updateChestShopSign(PendingPriceEdit pending) {
@@ -448,7 +451,7 @@ public class CommerceManager {
                 return;
             }
 
-            // Vérifier les permissions pour le shop
+            // Vérifier les permissions pour le shop (ADAPTÉE ZONES)
             Shop shop = plugin.getShopManager().getShopAtLocation(chestBlock.getLocation());
             if (shop != null && !shop.isMember(player.getUniqueId()) && !player.getUniqueId().equals(ownerId)) {
                 // Seuls les membres du shop et le propriétaire peuvent interagir
@@ -965,7 +968,7 @@ public class CommerceManager {
     }
 
     /**
-     * Vérifie si un joueur peut interagir avec un coffre (pour les chest shops)
+     * Vérifie si un joueur peut interagir avec un coffre (pour les chest shops) - ADAPTÉE ZONES
      */
     public boolean canPlayerInteractWithChest(Player player, Location chestLocation) {
         if (isChestShop(chestLocation)) {
@@ -973,7 +976,7 @@ public class CommerceManager {
             return false;
         }
 
-        // Coffre normal - vérifier les permissions du shop
+        // Coffre normal - vérifier les permissions du shop via les zones
         Shop shop = plugin.getShopManager().getShopAtLocation(chestLocation);
         if (shop == null) return true; // Pas dans un shop
 

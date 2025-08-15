@@ -2,6 +2,7 @@ package fr.shop.commands;
 
 import fr.shop.PlayerShops;
 import fr.shop.data.Shop;
+import fr.shop.data.Zone;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -16,7 +17,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Commande principale pour gérer les shops
+ * Commande principale pour gérer les shops basés sur les zones
  */
 public class ShopCommand implements CommandExecutor, TabCompleter {
 
@@ -28,12 +29,10 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player)) {
+        if (!(sender instanceof Player player)) {
             sender.sendMessage("§cCette commande ne peut être utilisée que par un joueur!");
             return true;
         }
-
-        Player player = (Player) sender;
 
         if (args.length == 0) {
             sendHelp(player);
@@ -89,6 +88,10 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
 
             case "boost":
                 handleBoostCommand(player);
+                break;
+
+            case "zone":
+                handleZoneCommand(player, args);
                 break;
 
             case "help":
@@ -149,10 +152,21 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
             return;
         }
 
+        Zone zone = shop.getZone(plugin.getZoneManager());
+
         player.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬ SHOP INFO ▬▬▬▬▬▬▬▬▬▬▬");
         player.sendMessage("§7ID: §e" + shop.getId());
+        player.sendMessage("§7Zone: §e" + shop.getZoneId());
         player.sendMessage("§7Propriétaire: §e" + shop.getOwnerName());
         player.sendMessage("§7Statut: " + getStatusColor(shop.getStatus()) + getStatusName(shop.getStatus()));
+
+        if (zone != null) {
+            player.sendMessage("§7Beacons: §e" + zone.getBeaconCount());
+            player.sendMessage("§7Taille: §e" + zone.getBlockCount() + " §7blocs");
+            if (zone.hasTeleportLocation()) {
+                player.sendMessage("§7Téléportation: §aDisponible");
+            }
+        }
 
         if (shop.isRented()) {
             player.sendMessage("§7Expire dans: §e" + formatTimeRemaining(shop.getRentExpiry()));
@@ -214,8 +228,7 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
                 return;
             }
 
-            player.teleport(targetShop.getLocation());
-            player.sendMessage("§a§lSHOP §8» §aTéléporté au shop de §e" + targetShop.getOwnerName() + "§a!");
+            teleportToShop(player, targetShop);
         } else {
             Shop targetShop = plugin.getShopManager().getPlayerShop(target.getUniqueId());
             if (targetShop == null) {
@@ -223,8 +236,26 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
                 return;
             }
 
-            player.teleport(targetShop.getLocation());
-            player.sendMessage("§a§lSHOP §8» §aTéléporté au shop de §e" + target.getName() + "§a!");
+            teleportToShop(player, targetShop);
+        }
+    }
+
+    private void teleportToShop(Player player, Shop shop) {
+        Zone zone = shop.getZone(plugin.getZoneManager());
+        if (zone == null) {
+            player.sendMessage("§c§lSHOP §8» §cErreur: Zone du shop introuvable!");
+            return;
+        }
+
+        // Utiliser la téléportation de la zone si disponible, sinon le centre
+        if (zone.hasTeleportLocation()) {
+            player.teleport(zone.getTeleportLocation());
+            player.sendMessage("§a§lSHOP §8» §aTéléporté au shop de §e" + shop.getOwnerName() + "§a! (Point de téléportation)");
+        } else if (zone.getCenterLocation() != null) {
+            player.teleport(zone.getCenterLocation());
+            player.sendMessage("§a§lSHOP §8» §aTéléporté au shop de §e" + shop.getOwnerName() + "§a! (Centre)");
+        } else {
+            player.sendMessage("§c§lSHOP §8» §cImpossible de déterminer la position de téléportation!");
         }
     }
 
@@ -372,6 +403,155 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
         plugin.getShopManager().boostAdvertisement(player);
     }
 
+    private void handleZoneCommand(Player player, String[] args) {
+        if (args.length < 2) {
+            sendZoneHelp(player);
+            return;
+        }
+
+        String action = args[1].toLowerCase();
+
+        switch (action) {
+            case "info":
+                handleZoneInfoCommand(player);
+                break;
+
+            case "tp":
+            case "teleport":
+                handleZoneTeleportCommand(player);
+                break;
+
+            case "center":
+            case "centre":
+                handleZoneCenterCommand(player);
+                break;
+
+            case "size":
+            case "taille":
+                handleZoneSizeCommand(player);
+                break;
+
+            default:
+                sendZoneHelp(player);
+                break;
+        }
+    }
+
+    private void handleZoneInfoCommand(Player player) {
+        Shop shop = plugin.getShopManager().getPlayerShop(player.getUniqueId());
+        if (shop == null) {
+            player.sendMessage("§c§lSHOP §8» §cVous ne possédez aucun shop!");
+            return;
+        }
+
+        Zone zone = shop.getZone(plugin.getZoneManager());
+        if (zone == null) {
+            player.sendMessage("§c§lSHOP §8» §cZone de votre shop introuvable!");
+            return;
+        }
+
+        player.sendMessage("§6§l▬▬▬▬▬▬▬ ZONE INFO ▬▬▬▬▬▬▬");
+        player.sendMessage("§7ID de zone: §e" + zone.getId());
+        player.sendMessage("§7Monde: §e" + zone.getWorldName());
+        player.sendMessage("§7Beacons: §e" + zone.getBeaconCount());
+        player.sendMessage("§7Blocs totaux: §e" + zone.getBlockCount());
+
+        if (zone.getCenterLocation() != null) {
+            var center = zone.getCenterLocation();
+            player.sendMessage("§7Centre: §e" + (int)center.getX() + ", " + (int)center.getY() + ", " + (int)center.getZ());
+        }
+
+        if (zone.hasTeleportLocation()) {
+            var teleport = zone.getRawTeleportLocation();
+            player.sendMessage("§7Téléportation: §a" + (int)teleport.getX() + ", " + (int)teleport.getY() + ", " + (int)teleport.getZ());
+            player.sendMessage("§7Orientation: §e" + zone.getTeleportYaw() + "° (yaw)");
+        } else {
+            player.sendMessage("§7Téléportation: §cNon définie");
+        }
+
+        Zone.BoundingBox bounds = zone.getBoundingBox();
+        if (bounds != null) {
+            player.sendMessage("§7Limites: §e(" + bounds.minX + "," + bounds.minY + "," + bounds.minZ + ") à (" + bounds.maxX + "," + bounds.maxY + "," + bounds.maxZ + ")");
+        }
+
+        player.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+    }
+
+    private void handleZoneTeleportCommand(Player player) {
+        Shop shop = plugin.getShopManager().getPlayerShop(player.getUniqueId());
+        if (shop == null) {
+            player.sendMessage("§c§lSHOP §8» §cVous ne possédez aucun shop!");
+            return;
+        }
+
+        Zone zone = shop.getZone(plugin.getZoneManager());
+        if (zone == null) {
+            player.sendMessage("§c§lSHOP §8» §cZone de votre shop introuvable!");
+            return;
+        }
+
+        if (zone.hasTeleportLocation()) {
+            player.teleport(zone.getTeleportLocation());
+            player.sendMessage("§a§lSHOP §8» §aTéléporté au point de téléportation de votre zone!");
+        } else if (zone.getCenterLocation() != null) {
+            player.teleport(zone.getCenterLocation());
+            player.sendMessage("§a§lSHOP §8» §aTéléporté au centre de votre zone!");
+        } else {
+            player.sendMessage("§c§lSHOP §8» §cImpossible de déterminer la position de téléportation!");
+        }
+    }
+
+    private void handleZoneCenterCommand(Player player) {
+        Shop shop = plugin.getShopManager().getPlayerShop(player.getUniqueId());
+        if (shop == null) {
+            player.sendMessage("§c§lSHOP §8» §cVous ne possédez aucun shop!");
+            return;
+        }
+
+        Zone zone = shop.getZone(plugin.getZoneManager());
+        if (zone == null) {
+            player.sendMessage("§c§lSHOP §8» §cZone de votre shop introuvable!");
+            return;
+        }
+
+        if (zone.getCenterLocation() != null) {
+            player.teleport(zone.getCenterLocation());
+            player.sendMessage("§a§lSHOP §8» §aTéléporté au centre de votre zone!");
+        } else {
+            player.sendMessage("§c§lSHOP §8» §cCentre de zone introuvable!");
+        }
+    }
+
+    private void handleZoneSizeCommand(Player player) {
+        Shop shop = plugin.getShopManager().getPlayerShop(player.getUniqueId());
+        if (shop == null) {
+            player.sendMessage("§c§lSHOP §8» §cVous ne possédez aucun shop!");
+            return;
+        }
+
+        Zone zone = shop.getZone(plugin.getZoneManager());
+        if (zone == null) {
+            player.sendMessage("§c§lSHOP §8» §cZone de votre shop introuvable!");
+            return;
+        }
+
+        Zone.BoundingBox bounds = zone.getBoundingBox();
+        if (bounds != null) {
+            int width = bounds.maxX - bounds.minX + 1;
+            int height = bounds.maxY - bounds.minY + 1;
+            int depth = bounds.maxZ - bounds.minZ + 1;
+
+            player.sendMessage("§6§lSHOP §8» §6Dimensions de votre zone:");
+            player.sendMessage("§7Largeur (X): §e" + width + " §7blocs");
+            player.sendMessage("§7Hauteur (Y): §e" + height + " §7blocs");
+            player.sendMessage("§7Profondeur (Z): §e" + depth + " §7blocs");
+            player.sendMessage("§7Volume total: §e" + (width * height * depth) + " §7blocs");
+            player.sendMessage("§7Beacons: §e" + zone.getBeaconCount());
+        } else {
+            player.sendMessage("§c§lSHOP §8» §cImpossible de calculer les dimensions de la zone!");
+        }
+    }
+
     private void toggleAdvertisement(Player player) {
         Shop shop = plugin.getShopManager().getPlayerShop(player.getUniqueId());
         if (shop == null) {
@@ -403,6 +583,7 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
         player.sendMessage("§e/shop remove §7- Supprimer des éléments");
         player.sendMessage("§e/shop ad §7- Gérer les annonces");
         player.sendMessage("§e/shop boost §7- Booster votre annonce");
+        player.sendMessage("§e/shop zone §7- Informations sur votre zone");
         player.sendMessage("§7§o(Pour créer un chest shop: clic droit sur un coffre avec un item, prix en coins)");
         player.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
     }
@@ -423,6 +604,15 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
         player.sendMessage("§e/shop ad view §7- Voir toutes les annonces");
         player.sendMessage("§e/shop ad toggle §7- Activer/désactiver votre annonce");
         player.sendMessage("§e/shop boost §7- Booster votre annonce (1h)");
+        player.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
+    }
+
+    private void sendZoneHelp(Player player) {
+        player.sendMessage("§6§l▬▬▬▬▬▬▬ SHOP ZONE ▬▬▬▬▬▬▬");
+        player.sendMessage("§e/shop zone info §7- Informations détaillées sur votre zone");
+        player.sendMessage("§e/shop zone tp §7- Se téléporter à votre zone");
+        player.sendMessage("§e/shop zone center §7- Aller au centre de votre zone");
+        player.sendMessage("§e/shop zone size §7- Voir les dimensions de votre zone");
         player.sendMessage("§6§l▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬");
     }
 
@@ -468,7 +658,7 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
         List<String> completions = new ArrayList<>();
 
         if (args.length == 1) {
-            completions.addAll(Arrays.asList("list", "claim", "extend", "info", "tp", "member", "customize", "remove", "ad", "boost", "help"));
+            completions.addAll(Arrays.asList("list", "claim", "extend", "info", "tp", "member", "customize", "remove", "ad", "boost", "zone", "help"));
         } else if (args.length == 2) {
             String subCommand = args[0].toLowerCase();
 
@@ -477,7 +667,7 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
                 case "teleport":
                     completions.addAll(plugin.getShopManager().getRentedShops().stream()
                             .map(Shop::getOwnerName)
-                            .collect(Collectors.toList()));
+                            .toList());
                     break;
 
                 case "member":
@@ -499,6 +689,10 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
                 case "annonce":
                     completions.addAll(Arrays.asList("create", "edit", "view", "toggle"));
                     break;
+
+                case "zone":
+                    completions.addAll(Arrays.asList("info", "tp", "center", "size"));
+                    break;
             }
         } else if (args.length == 3) {
             String subCommand = args[0].toLowerCase();
@@ -508,7 +702,7 @@ public class ShopCommand implements CommandExecutor, TabCompleter {
                     ("add".equals(action) || "remove".equals(action))) {
                 completions.addAll(Bukkit.getOnlinePlayers().stream()
                         .map(Player::getName)
-                        .collect(Collectors.toList()));
+                        .toList());
             } else if (("remove".equals(subCommand) || "supprimer".equals(subCommand)) &&
                     ("text".equals(action) || "texte".equals(action))) {
                 completions.addAll(Arrays.asList("1", "2", "3"));

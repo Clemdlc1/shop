@@ -14,12 +14,13 @@ public class PlayerShops extends JavaPlugin {
 
     private PrisonTycoonHook prisonTycoonHook;
     private ConfigManager configManager;
+    private ZoneManager zoneManager;
+    private ZoneScanner zoneScanner;
     private ShopManager shopManager;
     private CommerceManager commerceManager;
     private VisualManager visualManager;
-    private ZoneManager zoneManager;
-    private ZoneScanner zoneScanner;
     private ShopGUI shopGUI;
+    private ShopBackupManager shopBackupManager;
     private MarketZoneBackupManager marketZoneBackupManager;
 
     // Getters
@@ -38,14 +39,23 @@ public class PlayerShops extends JavaPlugin {
             return;
         }
 
-        // Initialisation des managers
+        // 1. ConfigManager en premier (pas de dépendances)
         this.configManager = new ConfigManager(this);
-        this.shopManager = new ShopManager(this);
+
+        // 2. ZoneManager (dépend de ConfigManager)
+        this.zoneManager = new ZoneManager(this);
+        this.zoneScanner = new ZoneScanner(this, zoneManager);
+
+        // 3. ShopManager (dépend de ZoneManager)
+        this.shopManager = new ShopManager(this, zoneManager);
+
+        // 4. Autres managers (dépendent de ShopManager)
         this.commerceManager = new CommerceManager(this);
         this.visualManager = new VisualManager(this);
         this.shopGUI = new ShopGUI(this);
-        this.zoneManager = new ZoneManager(this);
-        this.zoneScanner = new ZoneScanner(this, zoneManager);
+
+        // 5. Backup managers (dépendent de ZoneManager)
+        this.shopBackupManager = new ShopBackupManager(this, zoneManager);
         this.marketZoneBackupManager = new MarketZoneBackupManager(this, zoneManager);
 
         // Enregistrement des commandes
@@ -91,6 +101,14 @@ public class PlayerShops extends JavaPlugin {
         return configManager;
     }
 
+    public ZoneManager getZoneManager() {
+        return zoneManager;
+    }
+
+    public ZoneScanner getZoneScanner() {
+        return zoneScanner;
+    }
+
     public ShopManager getShopManager() {
         return shopManager;
     }
@@ -107,12 +125,8 @@ public class PlayerShops extends JavaPlugin {
         return shopGUI;
     }
 
-    public ZoneManager getZoneManager() {
-        return zoneManager;
-    }
-
-    public ZoneScanner getZoneScanner() {
-        return zoneScanner;
+    public ShopBackupManager getShopBackupManager() {
+        return shopBackupManager;
     }
 
     public MarketZoneBackupManager getMarketZoneBackupManager() {

@@ -4,6 +4,7 @@ import fr.shop.PlayerShops;
 import fr.shop.data.Shop;
 import fr.shop.managers.CommerceManager;
 import fr.shop.managers.ShopManager;
+import fr.shop.managers.ZoneManager;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.Sign;
@@ -20,22 +21,24 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 
 /**
- * Listeners pour gérer les interactions avec les shops
+ * Listeners pour gérer les interactions avec les shops basés sur les zones
  */
 public class ShopListeners implements Listener {
 
     private final PlayerShops plugin;
     private final ShopManager shopManager;
     private final CommerceManager commerceManager;
+    private final ZoneManager zoneManager;
 
     public ShopListeners(PlayerShops plugin) {
         this.plugin = plugin;
         this.shopManager = plugin.getShopManager();
         this.commerceManager = plugin.getCommerceManager();
+        this.zoneManager = plugin.getZoneManager();
     }
 
     // ===============================
-    // PROTECTION DES SHOPS
+    // PROTECTION DES SHOPS (ADAPTÉE ZONES)
     // ===============================
 
     @EventHandler(priority = EventPriority.HIGH)
@@ -61,17 +64,17 @@ public class ShopListeners implements Listener {
             return;
         }
 
-        // Gestion spéciale des beacons
-        if (block.getType() == Material.BEACON) {
+        // Gestion spéciale des barrels
+        if (block.getType() == Material.BARREL) {
             Shop shop = shopManager.getShopAtLocation(block.getLocation());
             if (shop != null && shop.isMember(player.getUniqueId())) {
                 if (shop.hasBeacon()) {
                     event.setCancelled(true);
-                    player.sendMessage("§c§lSHOP §8» §cVous ne pouvez avoir qu'un seul beacon dans votre shop!");
+                    player.sendMessage("§c§lSHOP §8» §cVous ne pouvez avoir qu'un seul Tank dans votre shop!");
                     return;
                 } else {
                     // Permettre la pose et enregistrer
-                    shopManager.placeBeacon(player, block.getLocation());
+                    shopManager.placeBarrel(player, block.getLocation());
                 }
             }
         }
@@ -132,7 +135,7 @@ public class ShopListeners implements Listener {
     }
 
     // ===============================
-    // INTERACTIONS
+    // INTERACTIONS (ADAPTÉES ZONES)
     // ===============================
 
     @EventHandler
@@ -182,7 +185,7 @@ public class ShopListeners implements Listener {
 
                 // Vérifier si le joueur a un shop et est dans son shop
                 Shop shop = shopManager.getPlayerShop(player.getUniqueId());
-                if (shop != null && shop.containsLocation(block.getLocation())) {
+                if (shop != null && shop.containsLocation(block.getLocation(), zoneManager)) {
                     // Commencer la création si pas déjà un chest shop
                     if (!commerceManager.isChestShop(block.getLocation())) {
                         event.setCancelled(true);

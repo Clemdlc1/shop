@@ -3,8 +3,10 @@ package fr.shop.gui;
 import fr.shop.PlayerShops;
 import fr.shop.data.Shop;
 import fr.shop.data.ShopAdvertisement;
+import fr.shop.data.Zone;
 import fr.shop.hooks.PrisonTycoonHook;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -19,7 +21,7 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.util.*;
 
 /**
- * Interface graphique pour les shops
+ * Interface graphique pour les shops basés sur les zones
  */
 public class ShopGUI implements Listener {
 
@@ -99,6 +101,13 @@ public class ShopGUI implements Listener {
         if (playerShop != null) {
             List<String> lore = new ArrayList<>();
             lore.add("§7Statut: " + getStatusColor(playerShop.getStatus()) + getStatusName(playerShop.getStatus()));
+
+            Zone zone = playerShop.getZone(plugin.getZoneManager());
+            if (zone != null) {
+                lore.add("§7Zone: §e" + zone.getId());
+                lore.add("§7Beacons: §e" + zone.getBeaconCount());
+            }
+
             lore.add("§7Cliquez pour vous téléporter");
             if (playerShop.getStatus() == Shop.ShopStatus.GRACE_PERIOD || playerShop.isRentExpired()) {
                 lore.add("§e§lClic droit pour prolonger!");
@@ -132,6 +141,12 @@ public class ShopGUI implements Listener {
         infoLore.add("§7Disponibles: §a" + allShops.stream().mapToInt(s -> s.getStatus() == Shop.ShopStatus.AVAILABLE ? 1 : 0).sum());
         infoLore.add("§7Loués: §e" + allShops.stream().mapToInt(s -> s.getStatus() == Shop.ShopStatus.RENTED ? 1 : 0).sum());
         infoLore.add("§7En grâce: §6" + allShops.stream().mapToInt(s -> s.getStatus() == Shop.ShopStatus.GRACE_PERIOD ? 1 : 0).sum());
+
+        // Statistiques des zones
+        var zoneStats = plugin.getZoneManager().getStats();
+        infoLore.add("§7Zones totales: §e" + zoneStats.getTotalZones());
+        infoLore.add("§7Beacons totaux: §e" + zoneStats.getTotalBeacons());
+
         infoMeta.setLore(infoLore);
         infoButton.setItemMeta(infoMeta);
         inv.setItem(46, infoButton);
@@ -335,7 +350,7 @@ public class ShopGUI implements Listener {
     }
 
     // ===============================
-    // GESTION DES CLICS
+    // GESTION DES CLICS (ADAPTÉE ZONES)
     // ===============================
 
     private void handleShopListClick(Player player, ItemStack clicked, int slot, boolean rightClick) {
@@ -349,10 +364,9 @@ public class ShopGUI implements Listener {
                     player.closeInventory();
                     plugin.getShopManager().extendShopRent(player);
                 } else {
-                    // Téléporter au shop
+                    // Téléporter au shop (utiliser la zone)
                     player.closeInventory();
-                    player.teleport(playerShop.getLocation());
-                    player.sendMessage("§a§lSHOP §8» §aTéléporté à votre shop!");
+                    teleportToShop(player, playerShop);
                 }
             } else {
                 player.sendMessage("§c§lSHOP §8» §cVous ne possédez aucun shop!");
@@ -375,7 +389,7 @@ public class ShopGUI implements Listener {
                     Shop shop = plugin.getShopManager().getShop(shopId);
                     if (shop != null) {
                         player.closeInventory();
-                        player.teleport(shop.getLocation());
+                        teleportToShop(player, shop);
                         player.sendMessage("§a§lSHOP §8» §aTéléporté au shop §e" + shopId + "§a! Faites §e/shop claim §apour le revendiquer.");
                     }
                 }
@@ -390,7 +404,7 @@ public class ShopGUI implements Listener {
 
                     if (shop != null) {
                         player.closeInventory();
-                        player.teleport(shop.getLocation());
+                        teleportToShop(player, shop);
                         player.sendMessage("§a§lSHOP §8» §aTéléporté au shop de §e" + ownerName + "§a!");
                     }
                 }
@@ -421,7 +435,7 @@ public class ShopGUI implements Listener {
 
                 if (shop != null) {
                     player.closeInventory();
-                    player.teleport(shop.getLocation());
+                    teleportToShop(player, shop);
                     player.sendMessage("§a§lSHOP §8» §aTéléporté au shop de §e" + ownerName + "§a!");
                 } else {
                     player.sendMessage("§c§lSHOP §8» §cShop introuvable!");
@@ -585,6 +599,30 @@ public class ShopGUI implements Listener {
     }
 
     // ===============================
+    // TÉLÉPORTATION AVEC ZONES
+    // ===============================
+
+    private void teleportToShop(Player player, Shop shop) {
+        Zone zone = shop.getZone(plugin.getZoneManager());
+        if (zone == null) {
+            player.sendMessage("§c§lSHOP §8» §cErreur: Zone du shop introuvable!");
+            return;
+        }
+
+        // Utiliser la téléportation de la zone si disponible, sinon le centre
+        if (zone.hasTeleportLocation()) {
+            player.teleport(zone.getTeleportLocation());
+        } else if (zone.getCenterLocation() != null) {
+            Location centerLoc = zone.getCenterLocation();
+            // Ajuster la Y pour être au-dessus du sol
+            centerLoc.setY(centerLoc.getY() + 2);
+            player.teleport(centerLoc);
+        } else {
+            player.sendMessage("§c§lSHOP §8» §cImpossible de déterminer la position de téléportation!");
+        }
+    }
+
+    // ===============================
     // NETTOYAGE
     // ===============================
 
@@ -624,7 +662,18 @@ public class ShopGUI implements Listener {
             long basePrice = plugin.getConfigManager().getRentPrice();
             List<String> lore = new ArrayList<>();
             lore.add("§7Prix: §e" + basePrice + " §7beacons");
-            lore.add("§7Taille: §f" + shop.getSize() + " §7blocs");
+
+            Zone zone = shop.getZone(plugin.getZoneManager());
+            if (zone != null) {
+                lore.add("§7Beacons: §f" + zone.getBeaconCount());
+                lore.add("§7Taille: §f" + zone.getBlockCount() + " §7blocs");
+                lore.add("§7Zone: §f" + zone.getId());
+
+                if (zone.hasTeleportLocation()) {
+                    lore.add("§7Téléportation: §aDisponible");
+                }
+            }
+
             lore.add("§8ID: " + shop.getId());
             lore.add("");
             lore.add("§a§lClic pour visiter!");
@@ -637,6 +686,16 @@ public class ShopGUI implements Listener {
 
             if (shop.getOwnerName() != null) {
                 lore.add("§7Propriétaire: §e" + shop.getOwnerName());
+            }
+
+            Zone zone = shop.getZone(plugin.getZoneManager());
+            if (zone != null) {
+                lore.add("§7Beacons: §f" + zone.getBeaconCount());
+                lore.add("§7Taille: §f" + zone.getBlockCount() + " §7blocs");
+
+                if (zone.hasTeleportLocation()) {
+                    lore.add("§7Téléportation: §aDisponible");
+                }
             }
 
             if (status == Shop.ShopStatus.RENTED) {
@@ -682,6 +741,15 @@ public class ShopGUI implements Listener {
         List<String> lore = new ArrayList<>();
         lore.add("§7Par: §e" + shop.getOwnerName());
         lore.add("§7Catégorie: §f" + shop.getAdvertisement().getCategory());
+
+        Zone zone = shop.getZone(plugin.getZoneManager());
+        if (zone != null) {
+            lore.add("§7Beacons: §f" + zone.getBeaconCount());
+            if (zone.hasTeleportLocation()) {
+                lore.add("§7Téléportation: §aDisponible");
+            }
+        }
+
         lore.add("");
         lore.add("§f" + shop.getAdvertisement().getDescription());
 

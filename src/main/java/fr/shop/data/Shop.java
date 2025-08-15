@@ -1,5 +1,6 @@
 package fr.shop.data;
 
+import fr.shop.data.Zone;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.configuration.ConfigurationSection;
@@ -7,16 +8,14 @@ import org.bukkit.configuration.ConfigurationSection;
 import java.util.*;
 
 /**
- * Représente un shop de joueur
+ * Représente un shop de joueur basé sur une zone de beacons
  */
 public class Shop {
 
     private final String id;
+    private String zoneId; // Remplace les coordonnées fixes
     private UUID ownerId;
     private String ownerName;
-    private Location location;
-    private Location corner1;
-    private Location corner2;
     private boolean rented;
     private long rentExpiry;
     private boolean inGracePeriod;
@@ -33,8 +32,9 @@ public class Shop {
     private Location beaconLocation;
     private boolean hasBeacon;
 
-    public Shop(String id) {
+    public Shop(String id, String zoneId) {
         this.id = id;
+        this.zoneId = zoneId;
         this.members = new HashSet<>();
         this.floatingTexts = new ArrayList<>();
         this.chestShops = new HashSet<>();
@@ -46,47 +46,85 @@ public class Shop {
     }
 
     // ===============================
-    // GETTERS ET SETTERS
+    // GETTERS ET SETTERS ZONE
+    // ===============================
+
+    public String getZoneId() {
+        return zoneId;
+    }
+
+    public void setZoneId(String zoneId) {
+        this.zoneId = zoneId;
+    }
+
+    /**
+     * Obtient la zone associée à ce shop
+     */
+    public Zone getZone(fr.shop.managers.ZoneManager zoneManager) {
+        return zoneManager.getZone(zoneId);
+    }
+
+    /**
+     * Obtient la location principale du shop (centre de la zone)
+     */
+    public Location getLocation(fr.shop.managers.ZoneManager zoneManager) {
+        Zone zone = getZone(zoneManager);
+        if (zone != null) {
+            // Utiliser la téléportation si disponible, sinon le centre
+            if (zone.hasTeleportLocation()) {
+                return zone.getTeleportLocation();
+            } else {
+                return zone.getCenterLocation();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Vérifie si une location est dans ce shop (via la zone)
+     */
+    public boolean containsLocation(Location location, fr.shop.managers.ZoneManager zoneManager) {
+        Zone zone = getZone(zoneManager);
+        return zone != null && zone.containsLocation(location);
+    }
+
+    /**
+     * Vérifie si une location est proche du shop
+     */
+    public boolean isNearShop(Location location, double distance, fr.shop.managers.ZoneManager zoneManager) {
+        Location shopLoc = getLocation(zoneManager);
+        if (shopLoc == null || location == null) return false;
+        if (!location.getWorld().equals(shopLoc.getWorld())) return false;
+
+        return location.distance(shopLoc) <= distance;
+    }
+
+    /**
+     * Calcule la taille du shop en blocs (via la zone)
+     */
+    public int getSize(fr.shop.managers.ZoneManager zoneManager) {
+        Zone zone = getZone(zoneManager);
+        return zone != null ? zone.getBlockCount() : 0;
+    }
+
+    // ===============================
+    // GETTERS ET SETTERS EXISTANTS
     // ===============================
 
     public static Shop loadFromConfig(String id, ConfigurationSection section) {
-        Shop shop = new Shop(id);
+        // Charger d'abord le zoneId
+        String zoneId = section.getString("zoneId");
+        if (zoneId == null) {
+            // Migration depuis l'ancien format - créer un zoneId basé sur l'ID du shop
+            zoneId = "zone_Market_" + id.replaceAll("[^a-zA-Z0-9]", "");
+        }
+
+        Shop shop = new Shop(id, zoneId);
 
         if (section.contains("owner")) {
             shop.setOwnerId(UUID.fromString(section.getString("owner")));
         }
         shop.setOwnerName(section.getString("ownerName"));
-
-        // Location
-        if (section.contains("location")) {
-            shop.setLocation(new Location(
-                    Bukkit.getWorld(section.getString("location.world")),
-                    section.getDouble("location.x"),
-                    section.getDouble("location.y"),
-                    section.getDouble("location.z"),
-                    (float) section.getDouble("location.yaw"),
-                    (float) section.getDouble("location.pitch")
-            ));
-        }
-
-        // Corners
-        if (section.contains("corner1")) {
-            shop.setCorner1(new Location(
-                    Bukkit.getWorld(section.getString("corner1.world")),
-                    section.getDouble("corner1.x"),
-                    section.getDouble("corner1.y"),
-                    section.getDouble("corner1.z")
-            ));
-        }
-
-        if (section.contains("corner2")) {
-            shop.setCorner2(new Location(
-                    Bukkit.getWorld(section.getString("corner2.world")),
-                    section.getDouble("corner2.x"),
-                    section.getDouble("corner2.y"),
-                    section.getDouble("corner2.z")
-            ));
-        }
 
         shop.setRented(section.getBoolean("rented"));
         shop.setRentExpiry(section.getLong("rentExpiry"));
@@ -195,30 +233,6 @@ public class Shop {
 
     public void setOwnerName(String ownerName) {
         this.ownerName = ownerName;
-    }
-
-    public Location getLocation() {
-        return location;
-    }
-
-    public void setLocation(Location location) {
-        this.location = location;
-    }
-
-    public Location getCorner1() {
-        return corner1;
-    }
-
-    public void setCorner1(Location corner1) {
-        this.corner1 = corner1;
-    }
-
-    public Location getCorner2() {
-        return corner2;
-    }
-
-    public void setCorner2(Location corner2) {
-        this.corner2 = corner2;
     }
 
     public boolean isRented() {
@@ -369,63 +383,12 @@ public class Shop {
         return hasBeacon;
     }
 
-    // ===============================
-    // MÉTHODES UTILITAIRES
-    // ===============================
-
     public void setHasBeacon(boolean hasBeacon) {
         this.hasBeacon = hasBeacon;
     }
 
-    /**
-     * Vérifie si une location est dans le shop
-     */
-    public boolean containsLocation(Location loc) {
-        if (corner1 == null || corner2 == null || loc == null) {
-            return false;
-        }
-
-        if (!loc.getWorld().equals(corner1.getWorld())) {
-            return false;
-        }
-
-        double minX = Math.min(corner1.getX(), corner2.getX());
-        double maxX = Math.max(corner1.getX(), corner2.getX());
-        double minY = Math.min(corner1.getY(), corner2.getY());
-        double maxY = Math.max(corner1.getY(), corner2.getY());
-        double minZ = Math.min(corner1.getZ(), corner2.getZ());
-        double maxZ = Math.max(corner1.getZ(), corner2.getZ());
-
-        return loc.getX() >= minX && loc.getX() <= maxX &&
-                loc.getY() >= minY && loc.getY() <= maxY &&
-                loc.getZ() >= minZ && loc.getZ() <= maxZ;
-    }
-
-    /**
-     * Vérifie si une location est proche du shop (5 blocs)
-     */
-    public boolean isNearShop(Location loc, double distance) {
-        if (location == null || loc == null) return false;
-        if (!loc.getWorld().equals(location.getWorld())) return false;
-
-        return loc.distance(location) <= distance;
-    }
-
-    /**
-     * Calcule la taille du shop en blocs
-     */
-    public int getSize() {
-        if (corner1 == null || corner2 == null) return 0;
-
-        int sizeX = Math.abs((int) (corner2.getX() - corner1.getX())) + 1;
-        int sizeY = Math.abs((int) (corner2.getY() - corner1.getY())) + 1;
-        int sizeZ = Math.abs((int) (corner2.getZ() - corner1.getZ())) + 1;
-
-        return sizeX * sizeY * sizeZ;
-    }
-
     // ===============================
-    // SÉRIALISATION
+    // MÉTHODES UTILITAIRES
     // ===============================
 
     /**
@@ -444,33 +407,13 @@ public class Shop {
     }
 
     public void saveToConfig(ConfigurationSection section) {
+        // Sauvegarder le zoneId au lieu des coordonnées
+        section.set("zoneId", zoneId);
+
         if (ownerId != null) {
             section.set("owner", ownerId.toString());
         }
         section.set("ownerName", ownerName);
-
-        if (location != null) {
-            section.set("location.world", location.getWorld().getName());
-            section.set("location.x", location.getX());
-            section.set("location.y", location.getY());
-            section.set("location.z", location.getZ());
-            section.set("location.yaw", location.getYaw());
-            section.set("location.pitch", location.getPitch());
-        }
-
-        if (corner1 != null) {
-            section.set("corner1.world", corner1.getWorld().getName());
-            section.set("corner1.x", corner1.getX());
-            section.set("corner1.y", corner1.getY());
-            section.set("corner1.z", corner1.getZ());
-        }
-
-        if (corner2 != null) {
-            section.set("corner2.world", corner2.getWorld().getName());
-            section.set("corner2.x", corner2.getX());
-            section.set("corner2.y", corner2.getY());
-            section.set("corner2.z", corner2.getZ());
-        }
 
         section.set("rented", rented);
         section.set("rentExpiry", rentExpiry);
